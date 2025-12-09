@@ -1,0 +1,7 @@
+1
+# 格式说明：
+# 第一行：全局默认模式ID
+# 后续行：包名 模式ID
+# 示例：
+# com.tencent.mm 3
+# com.miHoYo.Yuanshen 8

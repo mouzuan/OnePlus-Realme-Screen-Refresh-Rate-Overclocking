@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GT8 Pro 超频管理</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- DTBO Control Tab -->
+        <div id="tab-dtbo" class="tab-content active">
+            <div class="card">
+                <h3>系统状态</h3>
+                <p>当前分区槽位: <span id="slot-info" class="status-badge">Loading...</span></p>
+                <p>当前刷新率: <span id="fps-info" class="status-badge">Loading...</span></p>
+                <p>原厂备份: <span id="backup-info" class="status-badge">Checking...</span></p>
+                <div style="margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap;">
+                     <button id="btn-restore" class="btn btn-sm btn-danger" onclick="restoreDtbo()" disabled>恢复原厂 DTBO</button>
+                     <button id="btn-uninstall-module" class="btn btn-sm btn-secondary" onclick="uninstallModule()">卸载此模块</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>ADFR 控制 (实验性)</h3>
+                <p class="text-secondary">禁用可变刷新率，强制锁定帧率。</p>
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                    <button id="btn-disable-adfr" class="btn btn-sm btn-primary" onclick="toggleAdfr(false)">禁用 ADFR</button>
+                    <button id="btn-enable-adfr" class="btn btn-sm btn-success" onclick="toggleAdfr(true)">还原默认</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>自定义超频管理</h3>
+                <p class="text-secondary">高级功能：管理 DTBO 内的刷新率节点。</p>
+                
+                <div style="margin-bottom: 15px;">
+                    <button id="btn-init-workspace" class="btn btn-primary" onclick="initWorkspace()">1. 初始化工作区 & 扫描</button>
+                    <p class="text-hint">首次使用或重置时点击，将提取并解包 DTBO。</p>
+                </div>
+
+                <div id="dts-manager" style="display: none;">
+                    <h4>当前刷新率节点</h4>
+                    <div class="table-container">
+                        <table id="rates-table" class="rates-table">
+                            <thead>
+                                <tr>
+                                    <th>FPS</th>
+                                    <th>时钟 (Hz)</th>
+                                    <th>文件</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="rates-list">
+                                <!-- Dynamic Content -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--border);">
+                        <h4>添加新刷新率</h4>
+                        <div class="form-group">
+                            <label>基准节点 (Base):</label>
+                            <select id="base-node-select" class="form-input"></select>
+                        </div>
+                        <div class="form-group">
+                            <label>目标刷新率 (Target FPS):</label>
+                            <input type="number" id="target-fps" class="form-input" placeholder="例如: 150">
+                        </div>
+                        <button id="btn-add-rate" class="btn btn-secondary" onclick="addRate()">添加 / 修改</button>
+                    </div>
+
+                    <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--border);">
+                        <button id="btn-apply-changes" class="btn btn-danger" onclick="applyChanges()">2. 应用更改 & 刷入</button>
+                        <p class="text-hint">完成所有修改后点击此按钮生效。</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="terminal"></div>
+            
+            <!-- Debug Console -->
+            <!-- Moved to Log Tab -->
+        </div>
+
+        <!-- Refresh Rate Control Tab -->
+        <div id="tab-rates" class="tab-content">
+            <div class="card">
+                <h3>全局设置</h3>
+                
+                <!-- Resolution Switcher -->
+                <div class="res-switcher">
+                    <button class="res-btn active" onclick="switchRes('1080p')" id="btn-res-1080p">1080P (FHD+)</button>
+                    <button class="res-btn" onclick="switchRes('2k')" id="btn-res-2k">2K (QHD+)</button>
+                </div>
+
+                <div id="mode-list" class="mode-list">
+                    <div class="loading">正在加载显示模式...</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>应用独立设置</h3>
+                <div class="search-box">
+                    <input type="text" id="app-search" placeholder="搜索应用名 / 包名 / 刷新率..." oninput="filterAppList()">
+                </div>
+                <div id="app-list" class="app-list">
+                    <div class="loading">正在加载应用列表...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Log Tab -->
+        <div id="tab-logs" class="tab-content">
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <h3>运行日志</h3>
+                    <div>
+                        <button class="btn btn-sm btn-secondary" onclick="toggleDebug()" style="margin-right: 5px;">显示/隐藏 调试</button>
+                        <button class="btn btn-sm btn-primary" onclick="refreshLogs()">刷新</button>
+                    </div>
+                </div>
+                <textarea id="log-viewer" readonly class="log-viewer" placeholder="正在读取日志..."></textarea>
+                <div style="margin-top: 10px; text-align: right;">
+                    <button class="btn btn-sm btn-danger" onclick="clearLogs()">清空日志</button>
+                </div>
+            </div>
+            
+            <!-- Debug Console Moved Here -->
+            <div id="debug-container" class="card" style="margin-top: 20px; background: #000; color: #0f0; font-family: monospace; font-size: 10px; display: none;">
+                <h4 onclick="toggleDebug()" style="cursor: pointer;">调试日志 (点击折叠/展开)</h4>
+                <div id="debug-console" style="height: 150px; overflow-y: auto; white-space: pre-wrap;"></div>
+            </div>
+        </div>
+
+        <!-- About Tab -->
+        <div id="tab-about" class="tab-content">
+            <div class="card about-card">
+                <div class="about-header">
+                    <img src="1000003559.png" alt="Avatar" class="avatar" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI1MCIgZmlsbD0iI2ZmYjZWMSIvPjwvc3ZnPg=='">
+                    <h3 style="justify-content: center;">慕容茹艳</h3>
+                    <p>酷安慕容雪绒</p>
+                </div>
+                
+                <div class="link-grid">
+                    <a href="#" onclick="openUrl('https://github.com/murongruyan')" class="link-btn github">
+                        <span>GitHub (作者)</span>
+                    </a>
+                    <a href="#" onclick="openUrl('https://github.com/murongruyan/murongchaopin')" class="link-btn github-project">
+                        <span>GitHub (项目)</span>
+                    </a>
+                    <a href="#" onclick="openUrl('http://www.coolapk.com/u/5037694')" class="link-btn coolapk">
+                        <span>酷安主页</span>
+                    </a>
+                    <a href="#" onclick="openUrl('https://qun.qq.com/universal-share/share?ac=1&authKey=wkmt3V3miIjV2A9jFwCNbQifYQSi7GlmWeO3ifQCdK4d9M6AglmSEsCKDxUIIisv&busi_data=eyJncm91cENvZGUiOiI5NzQ4MzUzNzkiLCJ0b2tlbiI6IlRTNW5KUzRMRDFQVzlsYVozaGtWYjRNYllZV2JOMEpsNStCNUpkK2dqZjkvNFZzM1B5OFhjZ2t6UDZOUGF2ZnoiLCJ1aW4iOiIzMDUxODU1ODU4In0%3D&data=0bLebAEUSS1iI1ktOig1mJooBLFMv8N2eGnG9Zy7r8Hx2rh4mn7BGHSvfAdMNTooNBrC3GR5OdjOlnQT1qkvlg&svctype=4&tempid=h5_group_info')" class="link-btn qq">
+                        <span>加入粉丝群</span>
+                    </a>
+                </div>
+
+                <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px;">
+                    <h4 style="margin-bottom: 10px;">支持作者</h4>
+                    <div class="link-grid">
+                        <a href="#" onclick="donateWechat()" class="link-btn wechat-pay" style="background: #09bb07; color: white;">
+                            <span>微信打赏</span>
+                        </a>
+                        <a href="#" onclick="openUrl('https://render.alipay.com/p/s/i?scheme=%61%6C%69%70%61%79%73%3A%2F%2F%70%6C%61%74%66%6F%72%6D%61%70%69%2F%73%74%61%72%74%61%70%70%3F%73%61%49%64%3D%31%30%30%30%30%30%30%37%26%71%72%63%6F%64%65%3D%25%36%38%25%37%34%25%37%34%25%37%30%25%37%33%25%33%41%25%32%46%25%32%46%25%37%31%25%37%32%25%32%45%25%36%31%25%36%43%25%36%39%25%37%30%25%36%31%25%37%39%25%32%45%25%36%33%25%36%46%25%36%44%25%32%46%25%36%36%25%36%42%25%37%38%25%33%31%25%33%30%25%33%39%25%33%36%25%33%38%25%36%34%25%36%46%25%37%37%25%33%37%25%36%45%25%37%41%25%36%31%25%36%42%25%36%39%25%37%32%25%36%41%25%36%43%25%36%34%25%33%34%25%36%33%25%33%46%25%35%46%25%37%33%25%33%44%25%37%37%25%36%35%25%36%32%25%32%44%25%36%46%25%37%34%25%36%38%25%36%35%25%37%32')" class="link-btn alipay" style="background: #1677ff; color: white;">
+                            <span>支付宝打赏</span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3 style="justify-content: center;">致谢名单</h3>
+                <ul class="credit-list">
+                    <li>
+                        <span class="credit-name">酷安穆远星</span>
+                        <a href="#" onclick="openUrl('http://www.coolapk.com/u/28719807')" class="credit-link">访问主页</a>
+                    </li>
+                    <li>
+                        <span class="credit-name">TS插件开源项目</span>
+                        <a href="#" onclick="openUrl('https://github.com/KOWX712/Tricky-Addon-Update-Target-List')" class="credit-link">查看仓库</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Floating Action Button -->
+    <button id="btn-save-mode" class="fab-save" style="display: none;">💾</button>
+
+    <!-- Bottom Navigation -->
+    <div class="tabs">
+        <div class="tab-btn active" data-tab="tab-dtbo">
+            <span class="tab-icon">⚡</span>
+            <span class="tab-label">超频</span>
+        </div>
+        <div class="tab-btn" data-tab="tab-rates">
+            <span class="tab-icon">📱</span>
+            <span class="tab-label">刷新率</span>
+        </div>
+        <div class="tab-btn" data-tab="tab-logs">
+            <span class="tab-icon">📝</span>
+            <span class="tab-label">日志</span>
+        </div>
+        <div class="tab-btn" data-tab="tab-about">
+            <span class="tab-icon">ℹ️</span>
+            <span class="tab-label">关于</span>
+        </div>
+    </div>
+
+    <div id="toast" class="ui-toast"></div>
+    
+    <!-- Custom Modal -->
+    <div id="custom-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <h3 id="modal-title">标题</h3>
+            <p id="modal-message">内容</p>
+            <div id="modal-input-container" style="display: none; margin-top: 15px;">
+                <input type="number" id="modal-input" class="form-input" placeholder="">
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal()">取消</button>
+                <button id="modal-confirm-btn" class="btn btn-primary">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <div style="text-align: center; color: #666; font-size: 12px; padding: 10px;">
+        WebUI v1.1
+    </div>
+    <script src="js/main.js"></script>
+</body>
+</html>

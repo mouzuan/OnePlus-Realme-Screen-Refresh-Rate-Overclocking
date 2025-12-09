@@ -1,0 +1,8 @@
+id=murongchaopin
+name=真我GT8Pro超频dtbo模块
+version=1.0
+versionCode=10
+author=慕容茹艳（酷安慕容雪绒）
+description=让真我GT8Pro支持123hz，150hz，155hz，160hz，165hz，170hz，175hz，180hz。
+minMagisk=17000
+updateJson=https://raw.githubusercontent.com/murongruyan/murongchaopin/main/update.json
