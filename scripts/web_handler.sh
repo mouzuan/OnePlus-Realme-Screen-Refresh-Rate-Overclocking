@@ -205,9 +205,10 @@ case "$1" in
         
         echo "正在恢复原厂 DTBO..."
         if dd if="$IMG_DIR/dtbo.img" of="$DTBO_PARTITION" bs=4096; then
-            echo "恢复成功！"
-            rm -rf "$BIN_DIR/dtbo_dts"
-            rm -f "$BIN_DIR/new_dtbo.img"
+            echo "Success: 恢复成功！"
+            # 不要删除备份文件，防止用户再次误操作需要恢复
+            # rm -rf "$BIN_DIR/dtbo_dts"
+            # rm -f "$BIN_DIR/new_dtbo.img"
         else
             echo "错误：恢复失败"
             exit 1

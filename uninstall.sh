@@ -49,8 +49,12 @@ fi
 ui_print "开始卸载..."
 
 # 检查备份文件是否存在
-BACKUP_DTBO="$MODPATH/img/dtbo.img"
-if [ ! -f "$BACKUP_DTBO" ]; then
+# 优先检查 img/dtbo.img (新版路径)，兼容 backup_dtbo.img (旧版路径)
+if [ -f "$MODPATH/img/dtbo.img" ]; then
+  BACKUP_DTBO="$MODPATH/img/dtbo.img"
+elif [ -f "$MODPATH/backup_dtbo.img" ]; then
+  BACKUP_DTBO="$MODPATH/backup_dtbo.img"
+else
   ui_print "错误: 未找到原始 DTBO 备份文件"
   ui_print "无法恢复原始 DTBO"
   ui_print ""

@@ -429,7 +429,11 @@ async function restoreDtbo() {
     const scriptPath = `${MOD_DIR}/scripts/web_handler.sh`;
     const result = await ksuExec(`sh "${scriptPath}" restore_dtbo`);
     
-    alert(result);
+    if (result.includes("Success")) {
+        alert("恢复成功！请重启设备。");
+    } else {
+        alert("恢复失败:\n" + result);
+    }
     await loadSystemStatus();
 }
 
