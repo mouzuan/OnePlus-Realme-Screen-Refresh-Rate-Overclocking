@@ -16,7 +16,7 @@
                 <p>当前刷新率: <span id="fps-info" class="status-badge">Loading...</span></p>
                 <p>原厂备份: <span id="backup-info" class="status-badge">Checking...</span></p>
                 <div style="margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap;">
-                     <button id="btn-restore" class="btn btn-sm btn-danger" onclick="restoreDtbo()" disabled>恢复原厂 DTBO</button>
+                     <button id="btn-restore" class="btn btn-sm btn-danger" onclick="restoreDtbo()">恢复原厂 DTBO</button>
                      <button id="btn-uninstall-module" class="btn btn-sm btn-secondary" onclick="uninstallModule()">卸载此模块</button>
                 </div>
             </div>
@@ -35,8 +35,11 @@
                 <p class="text-secondary">高级功能：管理 DTBO 内的刷新率节点。</p>
                 
                 <div style="margin-bottom: 15px;">
-                    <button id="btn-init-workspace" class="btn btn-primary" onclick="initWorkspace()">1. 初始化工作区 & 扫描</button>
-                    <p class="text-hint">首次使用或重置时点击，将提取并解包 DTBO。</p>
+                    <div style="display: flex; gap: 10px; margin-bottom: 5px;">
+                        <button id="btn-scan-dts" class="btn btn-primary" onclick="scanWorkspace()" style="flex: 1;">1. 扫描当前存在的 DTS</button>
+                        <button id="btn-reextract" class="btn btn-secondary" onclick="reextractWorkspace()" style="flex: 1;">重新提取当前 DTBO</button>
+                    </div>
+                    <p class="text-hint">"扫描"仅读取现有工作区；"重新提取"会覆盖现有工作区 (慎用)。</p>
                 </div>
 
                 <div id="dts-manager" style="display: none;">

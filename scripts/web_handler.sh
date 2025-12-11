@@ -9,6 +9,7 @@ fi
 
 BIN_DIR="$MOD_PATH/bin"
 IMG_DIR="$MOD_PATH/img"
+WORK_DIR="$MOD_PATH/workspace"
 CONFIG_FILE="$MOD_PATH/config/mode.txt"
 DAEMON_BIN="$BIN_DIR/rate_daemon"
 
@@ -22,11 +23,11 @@ case "$1" in
         SLOT=$(getprop ro.boot.slot_suffix)
         DTBO_PARTITION="/dev/block/by-name/dtbo$SLOT"
         
-        mkdir -p "$IMG_DIR"
+        mkdir -p "$WORK_DIR"
         mkdir -p "$BIN_DIR/dtbo_dts"
         
         # Always re-extract to be safe
-        if dd if="$DTBO_PARTITION" of="$IMG_DIR/dtbo.img" bs=4096; then
+        if dd if="$DTBO_PARTITION" of="$WORK_DIR/dtbo.img" bs=4096 2>&1; then
             echo "DTBO提取成功"
         else
             echo "错误：DTBO提取失败"
@@ -39,7 +40,7 @@ case "$1" in
         # Remove old DTS
         rm -rf dtbo_dts/*
         
-        ./unpack_dtbo "../img/dtbo.img" >/dev/null 2>&1
+        ./unpack_dtbo "../workspace/dtbo.img" >/dev/null 2>&1
         if [ $? -ne 0 ]; then
             echo "错误：解包失败"
             exit 1
@@ -95,7 +96,13 @@ case "$1" in
         SLOT=$(getprop ro.boot.slot_suffix)
         DTBO_PARTITION="/dev/block/by-name/dtbo$SLOT"
         
-        if dd if=dtbo.img of="$DTBO_PARTITION"; then
+        # pack_dtbo generates new_dtbo.img usually
+        NEW_DTBO="new_dtbo.img"
+        if [ ! -f "$NEW_DTBO" ]; then
+             NEW_DTBO="dtbo.img" # Fallback just in case
+        fi
+
+        if dd if="$NEW_DTBO" of="$DTBO_PARTITION" 2>&1; then
             echo "Success: 刷入成功！请重启生效。"
         else
             echo "错误：刷入失败"
@@ -113,11 +120,11 @@ case "$1" in
         SLOT=$(getprop ro.boot.slot_suffix)
         DTBO_PARTITION="/dev/block/by-name/dtbo$SLOT"
         
-        mkdir -p "$IMG_DIR"
+        mkdir -p "$WORK_DIR"
         mkdir -p "$BIN_DIR/dtbo_dts"
         
         echo "1. 提取 DTBO..."
-        if dd if="$DTBO_PARTITION" of="$IMG_DIR/dtbo.img" bs=4096; then
+        if dd if="$DTBO_PARTITION" of="$WORK_DIR/dtbo.img" bs=4096 2>&1; then
             echo "提取成功"
         else
             echo "错误：提取失败"
@@ -128,7 +135,7 @@ case "$1" in
         chmod +x *
         
         echo "2. 解包..."
-        ./unpack_dtbo "../img/dtbo.img" >/dev/null 2>&1
+        ./unpack_dtbo "../workspace/dtbo.img" >/dev/null 2>&1
         if [ $? -ne 0 ]; then
             echo "错误：解包失败"
             exit 1
@@ -184,7 +191,7 @@ case "$1" in
         
         echo "5. 刷入分区..."
         NEW_DTBO="$BIN_DIR/new_dtbo.img"
-        if dd if="$NEW_DTBO" of="$DTBO_PARTITION" bs=4096; then
+        if dd if="$NEW_DTBO" of="$DTBO_PARTITION" bs=4096 2>&1; then
             echo "刷入成功"
         else
             echo "错误：刷入失败"
@@ -195,7 +202,13 @@ case "$1" in
         ;;
 
     "restore_dtbo")
-        if [ ! -f "$IMG_DIR/dtbo.img" ]; then
+        BACKUP_FILE=""
+        # Prioritize the original backup in module directory
+        if [ -f "$IMG_DIR/dtbo.img" ]; then
+            BACKUP_FILE="$IMG_DIR/dtbo.img"
+        fi
+
+        if [ -z "$BACKUP_FILE" ]; then
             echo "错误：找不到备份文件"
             exit 1
         fi
@@ -204,7 +217,7 @@ case "$1" in
         DTBO_PARTITION="/dev/block/by-name/dtbo$SLOT"
         
         echo "正在恢复原厂 DTBO..."
-        if dd if="$IMG_DIR/dtbo.img" of="$DTBO_PARTITION" bs=4096; then
+        if dd if="$BACKUP_FILE" of="$DTBO_PARTITION" bs=4096 2>&1; then
             echo "Success: 恢复成功！"
             # 不要删除备份文件，防止用户再次误操作需要恢复
             # rm -rf "$BIN_DIR/dtbo_dts"
@@ -295,7 +308,7 @@ case "$1" in
         ;;
 
     "check_backup")
-        if [ -f "$IMG_DIR/dtbo.img" ]; then
+        if [ -f "$IMG_DIR/dtbo.img" ] || [ -f "$MOD_PATH/backup_dtbo.img" ]; then
             echo "EXIST"
         else
             echo "NONE"
@@ -307,10 +320,17 @@ case "$1" in
         # Magisk/KSU uninstall way: create remove file
         
         # 1. Try to restore DTBO first if backup exists
+        BACKUP_FILE=""
         if [ -f "$IMG_DIR/dtbo.img" ]; then
+            BACKUP_FILE="$IMG_DIR/dtbo.img"
+        elif [ -f "$MOD_PATH/backup_dtbo.img" ]; then
+            BACKUP_FILE="$MOD_PATH/backup_dtbo.img"
+        fi
+
+        if [ ! -z "$BACKUP_FILE" ]; then
             SLOT=$(getprop ro.boot.slot_suffix)
             DTBO_PARTITION="/dev/block/by-name/dtbo$SLOT"
-            dd if="$IMG_DIR/dtbo.img" of="$DTBO_PARTITION" bs=4096
+            dd if="$BACKUP_FILE" of="$DTBO_PARTITION" bs=4096
         fi
         
         # 2. Create remove file for Magisk/KSU to handle cleanup on next boot

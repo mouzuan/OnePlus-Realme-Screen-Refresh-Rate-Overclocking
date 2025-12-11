@@ -22,6 +22,7 @@ body {
     max-width: 800px;
     margin: 0 auto;
     padding-bottom: 80px; /* 为底部导航栏预留空间 */
+    padding-top: 50px; /* 增加顶部留白，防止内容太靠上 */
 }
 
 /* Tabs - Bottom Navigation Style */

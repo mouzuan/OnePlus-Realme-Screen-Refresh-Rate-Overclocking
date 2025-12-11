@@ -70,8 +70,8 @@ async function ksuExec(cmd) {
                     delete window[callbackName];
                     debugLog(`[Timeout] ${cmd}`);
                     console.warn(`Command timed out: ${cmd}`);
-                    resolve(""); // Resolve empty string on timeout
-                }, 3000); // Reduce timeout to 3s for faster feedback
+                    resolve("Error: Command timed out"); 
+                }, 15000); // Increase timeout to 15s for stability
 
                 window[callbackName] = (code, stdout, stderr) => {
                     clearTimeout(timeout);
@@ -79,6 +79,9 @@ async function ksuExec(cmd) {
                     debugLog(`[CB] code=${code} out_len=${stdout ? stdout.length : 0}`);
                     if (code !== 0) {
                          console.error(`Command failed with code ${code}: ${stderr}`);
+                         // Return stderr if stdout is empty so we see the error
+                         resolve(stdout ? stdout.trim() : (stderr ? "Error: " + stderr : "Error: Unknown failure"));
+                         return;
                     }
                     resolve(stdout ? stdout.trim() : "");
                 };
@@ -141,7 +144,9 @@ async function init() {
         safeBind('btn-save-mode', 'onclick', saveGlobalMode);
         
         // 绑定 DTS 管理按钮
-        safeBind('btn-init-workspace', 'onclick', initWorkspace);
+        // safeBind('btn-init-workspace', 'onclick', initWorkspace);
+        safeBind('btn-scan-dts', 'onclick', scanWorkspace);
+        safeBind('btn-reextract', 'onclick', reextractWorkspace);
         safeBind('btn-add-rate', 'onclick', addRate);
         safeBind('btn-apply-changes', 'onclick', applyChanges);
 
@@ -243,7 +248,7 @@ async function loadSystemStatus() {
                  // Empty result usually means command failed or timed out
                  backupBadge.innerText = "未知";
                  backupBadge.className = "status-badge warning";
-                 restoreBtn.disabled = true;
+                 // restoreBtn.disabled = true; // 改为点击时提示
             } else if (checkBackup.includes("EXIST")) {
                 backupBadge.innerText = "已存在";
                 backupBadge.className = "status-badge success";
@@ -252,7 +257,7 @@ async function loadSystemStatus() {
                 // Includes NONE or anything else
                 backupBadge.innerText = "未找到";
                 backupBadge.className = "status-badge error";
-                restoreBtn.disabled = true;
+                // restoreBtn.disabled = true; // 改为点击时提示
             }
         }
     } catch (e) {
@@ -409,31 +414,66 @@ async function flashDtbo() {
         msg = `⚠️ 警告：您设置了自定义刷新率 ${customRate}Hz。\n\n这是一个实验性功能，可能导致黑屏或系统不稳定。\n请务必确认您有救砖能力。\n\n确定要继续吗？`;
     }
 
-    if (!confirm(msg)) return;
+    // if (!confirm(msg)) return;
+    const confirmed = await showModal("刷写确认", msg);
+    if (!confirmed) return;
     
-    showToast("正在刷写 DTBO...");
+    // Give UI a chance to close modal
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    showToast("正在刷写 DTBO，请稍候...");
+    
+    // Give Toast a chance to render
+    await new Promise(resolve => setTimeout(resolve, 50));
+
     const scriptPath = `${MOD_DIR}/scripts/web_handler.sh`;
     
     // Pass custom rate as 2nd argument (empty string if not set)
-    const result = await ksuExec(`sh "${scriptPath}" flash_dtbo "${customRate}"`);
-    
-    alert(result);
+    try {
+        const result = await ksuExec(`sh "${scriptPath}" flash_dtbo "${customRate}"`);
+        if (result.includes("Success") || result.includes("操作完成")) {
+             await showModal("成功", "刷写成功！\n" + result);
+        } else {
+             await showModal("失败", "刷写失败:\n" + result);
+        }
+    } catch (e) {
+        await showModal("错误", "执行出错: " + e.message);
+    }
+
     await loadSystemStatus();
 }
 
 // 恢复 DTBO
 async function restoreDtbo() {
-    if (!confirm("确定要恢复原厂 DTBO 吗？")) return;
+    // if (!confirm("确定要恢复原厂 DTBO 吗？")) return;
+    const confirmed = await showModal("恢复确认", "确定要恢复原厂 DTBO 吗？\n\n请确保您有备份文件。");
+    if (!confirmed) return;
     
-    showToast("正在恢复 DTBO...");
+    // Give UI a chance to close modal
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    showToast("正在恢复 DTBO，请稍候...");
+    
+    // Give Toast a chance to render
+    await new Promise(resolve => setTimeout(resolve, 50));
+
     const scriptPath = `${MOD_DIR}/scripts/web_handler.sh`;
-    const result = await ksuExec(`sh "${scriptPath}" restore_dtbo`);
     
-    if (result.includes("Success")) {
-        alert("恢复成功！请重启设备。");
-    } else {
-        alert("恢复失败:\n" + result);
+    try {
+        debugLog(`Restore calling: sh "${scriptPath}" restore_dtbo`);
+        const result = await ksuExec(`sh "${scriptPath}" restore_dtbo`);
+        debugLog(`Restore result: ${result}`);
+        
+        if (result.includes("Success")) {
+            await showModal("成功", "恢复成功！请重启设备。");
+        } else {
+            await showModal("失败", "恢复失败:\n" + result);
+        }
+    } catch (e) {
+        debugLog(`Restore exception: ${e.message}`);
+        await showModal("错误", "执行出错: " + e.message);
     }
+    
     await loadSystemStatus();
 }
 
@@ -646,7 +686,9 @@ async function refreshLogs() {
 
 // 清空日志
 async function clearLogs() {
-    if (!confirm("确定要清空日志吗？")) return;
+    // if (!confirm("确定要清空日志吗？")) return;
+    const confirmed = await showModal("清空日志", "确定要清空日志吗？");
+    if (!confirmed) return;
     
     await ksuExec(`echo "" > "${LOG_FILE}"`);
     showToast("日志已清空");
@@ -677,12 +719,30 @@ window.donateWechat = donateWechat;
 
 // --- DTS Management Functions ---
 
-// 1. Initialize Workspace
-async function initWorkspace() {
-    debugLog("initWorkspace called");
+// 1. Scan Workspace (Existing DTS)
+async function scanWorkspace() {
+    debugLog("scanWorkspace called");
+    showToast("正在扫描工作区...");
+    document.getElementById('dts-manager').style.display = 'block';
+    await scanRates();
+}
+
+// 2. Re-extract Workspace (Init)
+async function reextractWorkspace() {
+    debugLog("reextractWorkspace called");
+    
+    // if (!confirm("确定要重新提取 DTBO 吗？\n\n这将会覆盖当前工作区的所有修改！\n请仅在需要重置或更新底包时使用。")) return;
+    const confirmed = await showModal("重新提取确认", "确定要重新提取 DTBO 吗？\n\n这将会覆盖当前工作区的所有修改！\n请仅在需要重置或更新底包时使用。");
+    if (!confirmed) return;
+
+    // Give UI a chance to close modal
+    await new Promise(resolve => setTimeout(resolve, 100));
+
     try {
-        // if (!confirm("初始化工作区将提取并解包 DTBO，这可能需要几秒钟。\n\n如果之前有未保存的修改，将会被覆盖。\n\n确定要继续吗？")) return;
-        showToast("正在初始化工作区...");
+        showToast("正在提取并解包 DTBO...");
+        
+        // Give Toast a chance to render
+        await new Promise(resolve => setTimeout(resolve, 50));
         
         const scriptPath = `${MOD_DIR}/scripts/web_handler.sh`;
         
@@ -695,16 +755,16 @@ async function initWorkspace() {
             document.getElementById('dts-manager').style.display = 'block';
             await scanRates();
         } else {
-            alert("初始化失败:\n" + result);
+            await showModal("失败", "初始化失败:\n" + result);
         }
     } catch (e) {
         debugLog(`init error: ${e.message}`);
         console.error("initWorkspace error:", e);
-        alert("执行出错: " + e.message);
+        await showModal("错误", "执行出错: " + e.message);
     }
 }
 
-// 2. Scan Rates
+// 3. Scan Rates (Internal Helper)
 async function scanRates() {
     const tableBody = document.getElementById('rates-list');
     const select = document.getElementById('base-node-select');
@@ -790,7 +850,7 @@ async function addRate() {
         document.getElementById('target-fps').value = '';
         await scanRates();
     } else {
-        alert("添加失败:\n" + result);
+        await showModal("失败", "添加失败:\n" + result);
     }
 }
 
@@ -869,11 +929,11 @@ async function modifyRate(nodeName, currentFps) {
             showToast("修改成功！");
             await scanRates();
         } else {
-            alert("修改部分完成 (新节点已添加，但旧节点删除失败):\n" + resultRem);
+            await showModal("部分完成", "修改部分完成 (新节点已添加，但旧节点删除失败):\n" + resultRem);
             await scanRates();
         }
     } else {
-        alert("修改失败 (添加新节点失败):\n" + resultAdd);
+        await showModal("失败", "修改失败 (添加新节点失败):\n" + resultAdd);
     }
 }
 
@@ -898,23 +958,32 @@ async function removeRate(nodeName) {
         showToast("删除成功！");
         await scanRates();
     } else {
-        alert("删除失败:\n" + result);
+        await showModal("失败", "删除失败:\n" + result);
     }
 }
 
 // 5. Apply Changes
 async function applyChanges() {
-    if (!confirm("确定要应用更改并刷入设备吗？\n\n这将会重新打包 DTBO 并刷入分区。\n请确保所有修改都已确认无误。")) return;
+    // if (!confirm("确定要应用更改并刷入设备吗？\n\n这将会重新打包 DTBO 并刷入分区。\n请确保所有修改都已确认无误。")) return;
+    const confirmed = await showModal("应用确认", "确定要应用更改并刷入设备吗？\n\n这将会重新打包 DTBO 并刷入分区。\n请确保所有修改都已确认无误。");
+    if (!confirmed) return;
+
+    // Give UI a chance to close modal
+    await new Promise(resolve => setTimeout(resolve, 100));
 
     showToast("正在应用更改并刷入...");
+    
+    // Give Toast a chance to render
+    await new Promise(resolve => setTimeout(resolve, 50));
+
     const scriptPath = `${MOD_DIR}/scripts/web_handler.sh`;
     
     const result = await ksuExec(`sh "${scriptPath}" apply_changes`);
     
     if (result.includes("Success")) {
-        alert("成功！DTBO 已刷入。\n请重启设备以生效。");
+        await showModal("成功", "成功！DTBO 已刷入。\n请重启设备以生效。");
     } else {
-        alert("操作失败:\n" + result);
+        await showModal("失败", "操作失败:\n" + result);
     }
 }
 
@@ -931,9 +1000,9 @@ async function uninstallModule() {
     const result = await ksuExec(`sh "${scriptPath}" uninstall_module`);
     
     if (result.includes("Success")) {
-        alert("卸载成功！\n模块已移除，请重启设备。");
+        await showModal("成功", "卸载成功！\n模块已移除，请重启设备。");
     } else {
-        alert("卸载失败:\n" + result);
+        await showModal("失败", "卸载失败:\n" + result);
     }
 }
 
@@ -944,7 +1013,9 @@ async function toggleAdfr(enable) {
         ? "确定要还原 ADFR 设置吗？\n这将会恢复之前的系统属性。" 
         : "确定要禁用 ADFR 吗？\n这将会强制关闭可变刷新率，可能导致耗电增加。";
         
-    if (!confirm(msg)) return;
+    // if (!confirm(msg)) return;
+    const confirmed = await showModal(enable ? "还原确认" : "禁用确认", msg);
+    if (!confirmed) return;
 
     showToast(enable ? "正在还原 ADFR..." : "正在禁用 ADFR...");
     const scriptPath = `${MOD_DIR}/scripts/web_handler.sh`;
@@ -955,12 +1026,13 @@ async function toggleAdfr(enable) {
         showToast(enable ? "已还原默认设置" : "ADFR 已禁用");
         // alert(result);
     } else {
-        alert("操作失败:\n" + result);
+        await showModal("失败", "操作失败:\n" + result);
     }
 }
 
 // Expose DTS functions
-window.initWorkspace = initWorkspace;
+window.scanWorkspace = scanWorkspace;
+window.reextractWorkspace = reextractWorkspace;
 window.scanRates = scanRates;
 window.addRate = addRate;
 window.modifyRate = modifyRate;
@@ -968,6 +1040,8 @@ window.removeRate = removeRate;
 window.applyChanges = applyChanges;
 window.uninstallModule = uninstallModule;
 window.toggleAdfr = toggleAdfr;
+window.restoreDtbo = restoreDtbo;
+window.flashDtbo = flashDtbo;
 
 // 启动
 window.addEventListener('load', init);
