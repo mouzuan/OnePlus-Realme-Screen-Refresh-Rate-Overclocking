@@ -1,10 +1,10 @@
 # OnePlus & Realme 修改 dtbo 模块
 
 ## 简介
-这是一个专为 OnePlus 和 Realme 设备（如真我 GT8 Pro）设计的 KernelSU/Magisk 模块，旨在解锁屏幕刷新率限制，支持更多高刷档位。通过修改 DTBO (Device Tree Blob Overlay)，本模块可以让您的设备支持自定义的高刷新率，带来更流畅的视觉体验。
+这是一个专为 OnePlus 和 Realme 设备设计的 KernelSU/Magisk 模块，解锁屏幕刷新率限制，支持更多高刷档位。通过修改 DTBO (Device Tree Blob Overlay)，本模块可以让您的设备支持自定义的高刷新率，带来更流畅的视觉体验。
 
 ## 功能特性
-- **多档位刷新率支持**：支持 123Hz, 150Hz, 155Hz, 160Hz, 165Hz, 170Hz, 175Hz, 180Hz 等多个档位（具体取决于屏幕体质和驱动支持）。
+- **多档位刷新率支持**：真我GT8 Pro 支持 123Hz, 150Hz, 155Hz, 160Hz, 165Hz, 170Hz, 175Hz, 180Hz 等多个档位（具体取决于屏幕体质和驱动支持）1+15 支持 123Hz, 150Hz, 155Hz, 160Hz, 165Hz, 170Hz, 175Hz, 180Hz 等多个档位（具体取决于屏幕体质和驱动支持）。
 - **WebUI 管理界面**：内置功能强大的 Web 管理界面，无需复杂的命令行操作。
 - **自定义配置**：
   - 支持查看当前支持的刷新率节点。
@@ -32,7 +32,7 @@
 ## 注意事项
 - **风险提示**：修改屏幕刷新率和系统底层参数存在一定风险，可能导致屏幕显示异常、耗电增加或系统不稳定。请务必在操作前备份重要数据。
 - **黑屏处理**：如果应用新的刷新率后出现黑屏，请尝试强制重启手机。如果问题依旧，请进入安全模式或通过 TWRP/ADB 删除本模块 (`/data/adb/modules/murongchaopin`)。
-- **兼容性**：本模块目前重点适配 **真我 GT8 Pro**、**OnePlus 12** 和 **OnePlus 15**。其他 OnePlus/Realme 机型请谨慎测试。
+- **兼容性**：本模块目前仅适配 **真我 GT8 Pro**、**OnePlus 12** 和 **OnePlus 15**。其他 OnePlus/Realme 机型请谨慎测试。
 
 ## 更新日志
 请查看 [update.json](https://raw.githubusercontent.com/murongruyan/murongchaopin/main/update.json) 获取最新版本信息。
