@@ -107,6 +107,10 @@ else
   abort
 fi
 
+# 4.1 提取 AVB 信息 (已集成到 unpack_dtbo)
+# ui_print "正在提取 AVB 信息..."
+# ... (Removed manual extraction logic)
+
 # 5. 执行处理流程
 # 切换到 bin 目录以确保工具能找到相对路径资源
 cd "$BIN_DIR" || abort "无法进入 bin 目录"
@@ -147,6 +151,10 @@ if [ ! -f "$NEW_DTBO" ]; then
 fi
 
 # 6. 刷入新 DTBO
+# 6.0 重新签名 (AVB) - 已集成到 pack_dtbo
+# ui_print "正在添加 AVB 签名..."
+# ... (Removed manual signing logic)
+
 ui_print "正在刷入修改后的 DTBO..."
 if dd if="$NEW_DTBO" of="$DTBO_PARTITION" bs=4096; then
   ui_print "刷入成功!"
@@ -155,26 +163,10 @@ else
   abort
 fi
 
-# 7. 处理 AVB (禁用校验)
-ui_print "正在处理 AVB 校验..."
-AVB_MODULE="$MOD_PATH/avb_patch.zip"
-
-if [ -f "$AVB_MODULE" ]; then
-    ui_print "发现 AVB 补丁模块，尝试安装..."
-    
-    # 使用新的安装函数安装AVB模块
-    if install_module "$AVB_MODULE"; then
-        ui_print "AVB 模块安装成功！"
-    else
-        ui_print "警告: AVB 模块安装失败，尝试备用安装方法..."
-        
-        # 清理临时文件
-        rm -rf "$MOD_PATH/avb_tmp"
-    fi
-else
-    ui_print "警告: 未找到 avb_patch.zip，跳过 AVB 处理"
-    ui_print "请确保您已手动禁用 AVB 或放入了正确的模块文件"
-fi
+# 7. 处理 AVB (已集成到上方)
+# ui_print "正在处理 AVB 校验..."
+# AVB_MODULE="$MOD_PATH/avb_patch.zip"
+# ... (Removed legacy logic)
 
 # 清理临时文件（可选，建议保留以便调试）
 # ui_print "清理临时文件..."

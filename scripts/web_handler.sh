@@ -54,6 +54,19 @@ case "$1" in
         ./dts_tool scan
         ;;
 
+    "auto_process")
+        cd "$BIN_DIR" || exit 1
+        chmod +x process_dts
+        echo "Running Auto Process..."
+        ./process_dts
+        RET=$?
+        if [ $RET -eq 0 ]; then
+             echo "Success: Auto Process Completed"
+        else
+             echo "Error: process_dts failed with code $RET"
+        fi
+        ;;
+
     "add_rate")
         BASE_NODE="$2"
         TARGET_FPS="$3"
@@ -112,9 +125,9 @@ case "$1" in
 
     "flash_dtbo")
         CUSTOM_RATE="$2"
-        echo "开始执行超频流程..."
+        echo "开始执行超频流程 (Multi-Model Mode)..."
         if [ ! -z "$CUSTOM_RATE" ]; then
-            echo "自定义刷新率: ${CUSTOM_RATE}Hz"
+            echo "目标自定义刷新率: ${CUSTOM_RATE}Hz"
         fi
 
         SLOT=$(getprop ro.boot.slot_suffix)
@@ -141,44 +154,28 @@ case "$1" in
             exit 1
         fi
         
-        echo "3. 修改参数..."
+        echo "3. 应用通用补丁..."
+        # process_dts 用于特定机型(如GT8Pro)的额外参数修正
+        # 对于其他机型，此步骤可能跳过或仅做基础检查
         ./process_dts
-        if [ $? -ne 0 ]; then
-            echo "错误：修改失败"
-            exit 1
+        RET=$?
+        if [ $RET -ne 0 ]; then
+             echo "提示：通用补丁未应用或发生错误 (代码 $RET)，但这可能不影响自定义刷新率。"
         fi
         
-        # 自定义刷新率处理
+        # 自定义刷新率处理 (真正多机型通用部分)
         if [ ! -z "$CUSTOM_RATE" ]; then
-            echo "3.1 应用自定义刷新率..."
+            echo "3.1 智能添加自定义刷新率 ($CUSTOM_RATE Hz)..."
             
-            # 将 144Hz (0x90) 替换为用户自定义值
-            # 计算 Hex 值
-            HEX_RATE=$(printf "0x%x" "$CUSTOM_RATE")
-            echo "目标 Hex: $HEX_RATE"
+            # 使用 dts_tool 的智能添加功能
+            # 自动扫描最大 FPS 节点作为模板，支持所有 Qualcomm 平台
+            ./dts_tool smart_add "$CUSTOM_RATE"
             
-            # 遍历所有 dts 文件进行替换
-            # 注意：这里我们假设 process_dts 已经生成了包含 0x90 的 144Hz 配置
-            # 我们直接将其替换掉
-            
-            found=0
-            for file in dtbo_dts/*.dts; do
-                if grep -q "qcom,mdss-dsi-panel-framerate" "$file"; then
-                    # 尝试替换 Hex 格式 (0x90 = 144Hz)
-                    sed -i "s/qcom,mdss-dsi-panel-framerate = <0x90>/qcom,mdss-dsi-panel-framerate = <$HEX_RATE>/g" "$file"
-                    
-                    # 尝试替换 Decimal 格式 (144) - 以防万一
-                    sed -i "s/qcom,mdss-dsi-panel-framerate = <144>/qcom,mdss-dsi-panel-framerate = <$CUSTOM_RATE>/g" "$file"
-                    
-                    echo "已处理文件: $file"
-                    found=1
-                fi
-            done
-            
-            if [ $found -eq 0 ]; then
-                echo "警告：未找到 144Hz (0x90) 配置节点，自定义可能未生效。"
+            if [ $? -eq 0 ]; then
+                echo "自定义刷新率节点已生成。"
             else
-                echo "自定义刷新率应用成功。"
+                echo "错误：自定义刷新率添加失败！"
+                exit 1
             fi
         fi
         

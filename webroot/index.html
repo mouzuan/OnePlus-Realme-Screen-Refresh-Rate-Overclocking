@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GT8 Pro 超频管理</title>
+    <title>Realme/OnePlus 超频管理</title>
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -12,6 +12,7 @@
         <div id="tab-dtbo" class="tab-content active">
             <div class="card">
                 <h3>系统状态</h3>
+                <p>设备型号: <span id="model-info" class="status-badge">Detecting...</span></p>
                 <p>当前分区槽位: <span id="slot-info" class="status-badge">Loading...</span></p>
                 <p>当前刷新率: <span id="fps-info" class="status-badge">Loading...</span></p>
                 <p>原厂备份: <span id="backup-info" class="status-badge">Checking...</span></p>
@@ -38,6 +39,9 @@
                     <div style="display: flex; gap: 10px; margin-bottom: 5px;">
                         <button id="btn-scan-dts" class="btn btn-primary" onclick="scanWorkspace()" style="flex: 1;">1. 扫描当前存在的 DTS</button>
                         <button id="btn-reextract" class="btn btn-secondary" onclick="reextractWorkspace()" style="flex: 1;">重新提取当前 DTBO</button>
+                    </div>
+                    <div style="margin-bottom: 5px;">
+                         <button id="btn-auto-process" class="btn btn-warning" onclick="autoProcess()" style="width: 100%;">⚡ 执行自动超频处理 (Auto Patch)</button>
                     </div>
                     <p class="text-hint">"扫描"仅读取现有工作区；"重新提取"会覆盖现有工作区 (慎用)。</p>
                 </div>
@@ -183,6 +187,14 @@
                     <li>
                         <span class="credit-name">酷安大肥鱼</span>
                         <a href="#" onclick="openUrl('http://www.coolapk.com/u/951790')" class="credit-link">访问主页</a>
+                    </li>
+                    <li>
+                        <span class="credit-name">bybycode</span>
+                        <a href="#" onclick="openUrl('http://www.coolapk.com/u/716079')" class="credit-link">访问主页</a>
+                    </li>
+                    <li>
+                        <span class="credit-name">破星</span>
+                        <a href="#" onclick="openUrl('http://www.coolapk.com/u/21669766')" class="credit-link">访问主页</a>
                     </li>
                     <li>
                         <span class="credit-name">酷安望月古川</span>

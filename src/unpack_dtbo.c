@@ -5,8 +5,12 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <ctype.h>
 
 #define MAX_PATH 1024
+
+void trim(char *s);
+void extract_avb_info(const char *image_path);
 
 int is_file_exist(const char *path) {
     return access(path, F_OK) == 0;
@@ -93,5 +97,106 @@ int main(int argc, char *argv[]) {
 
     printf("解包完成!\n");
     printf("总共生成 %d 个DTS文件，保存在 dtbo_dts 目录中\n", count);
+
+    // Extract AVB Info
+    extract_avb_info(input_img);
+
     return 0;
+}
+
+void trim(char *s) {
+    char *p = s;
+    int l = strlen(p);
+
+    while(l > 0 && isspace(p[l - 1])) p[--l] = 0;
+    while(*p && isspace(*p)) p++;
+
+    memmove(s, p, l + 1);
+}
+
+void extract_avb_info(const char *image_path) {
+    printf("步骤3: 提取AVB信息...\n");
+    
+    // Ensure avbtool is executable
+    system("chmod +x ./avbtool/avbtool");
+    
+    char cmd[MAX_PATH * 2];
+    snprintf(cmd, sizeof(cmd), "export LD_LIBRARY_PATH=$PWD/avbtool:$LD_LIBRARY_PATH && ./avbtool/avbtool info_image --image \"%s\" > avb_info.tmp", image_path);
+    
+    if (system(cmd) != 0) {
+        printf("警告: 提取AVB信息失败，可能不是AVB签名的镜像或avbtool缺失。\n");
+        return;
+    }
+    
+    FILE *in = fopen("avb_info.tmp", "r");
+    if (!in) {
+        printf("警告: 无法读取临时AVB信息文件。\n");
+        return;
+    }
+    
+    FILE *out = fopen("dtbo_dts/avb_info.cfg", "w");
+    if (!out) {
+        printf("警告: 无法创建配置文件 dtbo_dts/avb_info.cfg\n");
+        fclose(in);
+        return;
+    }
+    
+    char line[1024];
+    
+    // Get actual file size of the input image to use as PARTITION_SIZE
+    struct stat st;
+    if (stat(image_path, &st) == 0) {
+        fprintf(out, "PARTITION_SIZE=%lld\n", (long long)st.st_size);
+    } else {
+        printf("警告: 无法获取文件大小，PARTITION_SIZE可能不正确。\n");
+    }
+
+    while (fgets(line, sizeof(line), in)) {
+        // Simple parsing logic based on avbtool output format
+        if (strstr(line, "Original image size:")) {
+            // Ignore Original image size from avbtool, use file size instead
+            continue;
+        }
+        else if (strstr(line, "Hash Algorithm:")) {
+            char *p = strchr(line, ':');
+            if (p) { trim(p+1); fprintf(out, "HASH_ALG=%s\n", p + 1); }
+        }
+        else if (strstr(line, "Partition Name:")) {
+            char *p = strchr(line, ':');
+            if (p) { trim(p+1); fprintf(out, "PARTITION_NAME=%s\n", p + 1); }
+        }
+        else if (strstr(line, "Salt:")) {
+            char *p = strchr(line, ':');
+            if (p) { trim(p+1); fprintf(out, "SALT=%s\n", p + 1); }
+        }
+        else if (strstr(line, "Algorithm:")) {
+            char *p = strchr(line, ':');
+            if (p) { trim(p+1); fprintf(out, "ALGORITHM=%s\n", p + 1); }
+        }
+        else if (strstr(line, "Rollback Index:")) {
+            char *p = strchr(line, ':');
+            if (p) { trim(p+1); fprintf(out, "ROLLBACK_INDEX=%s\n", p + 1); }
+        }
+        else if (strstr(line, "Release String:")) {
+            char *p = strchr(line, ':');
+            if (p) {
+                char *val = p + 1;
+                trim(val);
+                // Remove single quotes
+                if (val[0] == '\'') val++;
+                int len = strlen(val);
+                if (len > 0 && val[len-1] == '\'') val[len-1] = 0;
+                fprintf(out, "RELEASE_STRING=%s\n", val);
+            }
+        }
+        else if (strstr(line, "Prop:")) {
+            char *p = strchr(line, ':');
+            if (p) { trim(p+1); fprintf(out, "PROP=%s\n", p + 1); }
+        }
+    }
+    
+    fclose(in);
+    fclose(out);
+    remove("avb_info.tmp");
+    printf("AVB信息已保存至 dtbo_dts/avb_info.cfg\n");
 }

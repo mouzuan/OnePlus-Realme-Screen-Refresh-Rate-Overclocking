@@ -147,6 +147,7 @@ async function init() {
         // safeBind('btn-init-workspace', 'onclick', initWorkspace);
         safeBind('btn-scan-dts', 'onclick', scanWorkspace);
         safeBind('btn-reextract', 'onclick', reextractWorkspace);
+        safeBind('btn-auto-process', 'onclick', autoProcess);
         safeBind('btn-add-rate', 'onclick', addRate);
         safeBind('btn-apply-changes', 'onclick', applyChanges);
 
@@ -227,6 +228,16 @@ async function loadSystemStatus() {
         debugLog(`FPS loaded: ${fps}`);
     } catch (e) {
         debugLog(`FPS error: ${e.message}`);
+    }
+
+    // Model Detection
+    try {
+        const model = await ksuExec("getprop ro.product.vendor.model");
+        const modelEl = document.getElementById('model-info');
+        if (modelEl) modelEl.innerText = model || "Unknown";
+        debugLog(`Model loaded: ${model}`);
+    } catch (e) {
+        debugLog(`Model error: ${e.message}`);
     }
 
     // 3. Backup Check
@@ -760,6 +771,43 @@ async function reextractWorkspace() {
     } catch (e) {
         debugLog(`init error: ${e.message}`);
         console.error("initWorkspace error:", e);
+        await showModal("错误", "执行出错: " + e.message);
+    }
+}
+
+// 2.1 Auto Process (Auto Patch)
+async function autoProcess() {
+    debugLog("autoProcess called");
+    
+    const confirmed = await showModal("自动处理确认", "确定要执行自动超频处理吗？\n\n这将会根据您的机型自动生成高刷节点。\n建议在'重新提取'后执行一次。");
+    if (!confirmed) return;
+
+    // Give UI a chance to close modal
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    try {
+        showToast("正在执行自动处理...");
+        
+        // Give Toast a chance to render
+        await new Promise(resolve => setTimeout(resolve, 50));
+        
+        const scriptPath = `${MOD_DIR}/scripts/web_handler.sh`;
+        
+        debugLog("Calling auto_process...");
+        const result = await ksuExec(`sh "${scriptPath}" auto_process`);
+        debugLog(`auto_process result: ${result}`);
+        
+        if (result.includes("Success")) {
+            showToast("处理完成！正在刷新列表...");
+            await showModal("成功", "自动处理已完成！\n\n已根据检测到的机型生成了对应的高刷节点。\n您可以继续手动微调，或直接点击'应用更改'。");
+            document.getElementById('dts-manager').style.display = 'block';
+            await scanRates();
+        } else {
+            await showModal("失败", "处理失败:\n" + result);
+        }
+    } catch (e) {
+        debugLog(`auto_process error: ${e.message}`);
+        console.error("autoProcess error:", e);
         await showModal("错误", "执行出错: " + e.message);
     }
 }

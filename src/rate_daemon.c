@@ -37,6 +37,7 @@ int current_mode_id = -1;
 
 // Function Prototypes
 void set_surface_flinger(int id);
+void sync_android_settings(int id);
 int get_mode_width(int id);
 void get_sorted_fps_modes(int width, int *out_ids, int *out_count);
 int is_valid_mode(int id);
@@ -212,6 +213,7 @@ void smooth_switch(int target_id) {
             // 获取失败，直接设置并假设成功
             log_msg("First switch (unknown current) / 首次切换 (当前未知): -> %d", target_id);
             set_surface_flinger(target_id);
+            sync_android_settings(target_id);
             current_mode_id = target_id;
             return;
         }
@@ -226,6 +228,7 @@ void smooth_switch(int target_id) {
     if (current_width == 0 || target_width == 0) {
         log_msg("Invalid width / 无效宽度 (curr=%d, target=%d). Direct switch / 直接切换.", current_width, target_width);
         set_surface_flinger(target_id);
+        sync_android_settings(target_id);
         current_mode_id = target_id;
         return;
     }
@@ -233,6 +236,7 @@ void smooth_switch(int target_id) {
     if (current_width != target_width) {
         log_msg("Resolution change / 分辨率变更: %d -> %d. Direct switch / 直接切换.", current_mode_id, target_id);
         set_surface_flinger(target_id);
+        sync_android_settings(target_id);
         current_mode_id = target_id;
         return;
     }
@@ -256,6 +260,7 @@ void smooth_switch(int target_id) {
     if (idx_curr == -1) {
         log_msg("Current mode %d not in sorted list / 当前模式不在排序列表中. Direct switch / 直接切换.", current_mode_id);
         set_surface_flinger(target_id);
+        sync_android_settings(target_id);
         current_mode_id = target_id;
         return;
     }
@@ -263,6 +268,7 @@ void smooth_switch(int target_id) {
     if (idx_target == -1) {
         log_msg("Target mode %d not in sorted list / 目标模式不在排序列表中. Direct switch / 直接切换.", target_id);
         set_surface_flinger(target_id);
+        sync_android_settings(target_id);
         current_mode_id = target_id;
         return;
     }
@@ -285,6 +291,7 @@ void smooth_switch(int target_id) {
     }
     
     current_mode_id = target_id;
+    sync_android_settings(target_id);
 }
 
 // 获取前台应用 (使用用户提供的优化逻辑)
@@ -398,6 +405,32 @@ void set_surface_flinger(int id) {
 
     snprintf(cmd, sizeof(cmd), "service call SurfaceFlinger 1035 i32 %d > /dev/null", sf_id);
     system(cmd);
+}
+
+// 同步 Android 系统设置 (User Request)
+void sync_android_settings(int id) {
+    int fps = 0;
+    for(int i=0; i<mode_count; i++) {
+        if(modes[i].id == id) {
+            fps = modes[i].fps;
+            break;
+        }
+    }
+    
+    if(fps > 0) {
+        char cmd[1024];
+        snprintf(cmd, sizeof(cmd), 
+            "settings put secure support_highfps 1;"
+            "settings put system peak_refresh_rate %d;"
+            "settings put system user_refresh_rate %d;"
+            "settings put system min_refresh_rate %d;"
+            "settings put system default_refresh_rate %d;"
+            "settings put global debug.cpurend.vsync true;"
+            "settings put global hwui.disable_vsync false",
+            fps, fps, fps, fps);
+        system(cmd);
+        log_msg("Synced system settings to %dHz / 已同步系统设置到 %dHz", fps, fps);
+    }
 }
 
 // 获取指定分辨率下按FPS排序的模式列表
