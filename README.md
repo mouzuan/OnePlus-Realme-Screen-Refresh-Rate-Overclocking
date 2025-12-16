@@ -32,7 +32,7 @@
 ## 注意事项
 - **风险提示**：修改屏幕刷新率和系统底层参数存在一定风险，可能导致屏幕显示异常、耗电增加或系统不稳定。请务必在操作前备份重要数据。
 - **黑屏处理**：如果应用新的刷新率后出现黑屏，请尝试强制重启手机。如果问题依旧，请进入安全模式或通过 TWRP/ADB 删除本模块 (`/data/adb/modules/murongchaopin`)。
-- **兼容性**：本模块专为真我 GT8 Pro 开发，其他机型请勿尝试。
+- **兼容性**：本模块目前重点适配 **真我 GT8 Pro**、**OnePlus 12** 和 **OnePlus 15**。其他 OnePlus/Realme 机型请谨慎测试。
 
 ## 更新日志
 请查看 [update.json](https://raw.githubusercontent.com/murongruyan/murongchaopin/main/update.json) 获取最新版本信息。
