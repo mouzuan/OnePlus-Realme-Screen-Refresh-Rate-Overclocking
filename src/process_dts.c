@@ -423,7 +423,7 @@ int get_panel_id(const char *file_start, const char *current_pos, const char **o
                 }
 
                 // GT8 Pro Detection
-                if (strstr(node_name, "AE084") && strstr(node_name, "dvt")) {
+                if (strstr(node_name, PANEL_GT8_PRO)) {
                     if (g_current_model == MODEL_RMX5200) {
                         return 1;
                     }
