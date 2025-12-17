@@ -51,7 +51,30 @@ case "$1" in
     "scan_rates")
         cd "$BIN_DIR" || exit 1
         chmod +x dts_tool
-        ./dts_tool scan
+        
+        # Detect Model and Target Panel
+        MODEL=$(getprop ro.product.vendor.model)
+        TARGET_PANEL=""
+        case "$MODEL" in
+            "RMX5200") # Realme GT8 Pro
+                TARGET_PANEL="qcom,mdss_dsi_panel_AE084_P_3_A0033_dsc_cmd_dvt02"
+                ;;
+            "PLK110") # OnePlus 15
+                TARGET_PANEL="qcom,mdss_dsi_panel_AD296_P_3_A0020_dsc_cmd"
+                ;;
+            "PJD110") # OnePlus 12
+                TARGET_PANEL="qcom,mdss_dsi_panel_AA545_P_3_A0005_dsc_cmd"
+                ;;
+            *)
+                # Fallback or unknown model
+                TARGET_PANEL=""
+                ;;
+        esac
+        
+        # Get Project ID
+        PRJ_ID=$(getprop ro.boot.prjname)
+        
+        ./dts_tool scan "$TARGET_PANEL" "$PRJ_ID"
         ;;
 
     "auto_process")
@@ -72,7 +95,20 @@ case "$1" in
         TARGET_FPS="$3"
         cd "$BIN_DIR" || exit 1
         chmod +x dts_tool
-        ./dts_tool add "$BASE_NODE" "$TARGET_FPS"
+        
+        # Detect Model and Target Panel
+        MODEL=$(getprop ro.product.vendor.model)
+        TARGET_PANEL=""
+        case "$MODEL" in
+            "RMX5200") TARGET_PANEL="qcom,mdss_dsi_panel_AE084_P_3_A0033_dsc_cmd_dvt02" ;;
+            "PLK110") TARGET_PANEL="qcom,mdss_dsi_panel_AD296_P_3_A0020_dsc_cmd" ;;
+            "PJD110") TARGET_PANEL="qcom,mdss_dsi_panel_AA545_P_3_A0005_dsc_cmd" ;;
+        esac
+        
+        # Get Project ID
+        PRJ_ID=$(getprop ro.boot.prjname)
+
+        ./dts_tool add "$BASE_NODE" "$TARGET_FPS" "$TARGET_PANEL" "$PRJ_ID"
         RET=$?
         if [ $RET -eq 0 ]; then
              echo "Success"
@@ -85,7 +121,20 @@ case "$1" in
         TARGET_NODE="$2"
         cd "$BIN_DIR" || exit 1
         chmod +x dts_tool
-        ./dts_tool remove "$TARGET_NODE"
+        
+        # Detect Model and Target Panel
+        MODEL=$(getprop ro.product.vendor.model)
+        TARGET_PANEL=""
+        case "$MODEL" in
+            "RMX5200") TARGET_PANEL="qcom,mdss_dsi_panel_AE084_P_3_A0033_dsc_cmd_dvt02" ;;
+            "PLK110") TARGET_PANEL="qcom,mdss_dsi_panel_AD296_P_3_A0020_dsc_cmd" ;;
+            "PJD110") TARGET_PANEL="qcom,mdss_dsi_panel_AA545_P_3_A0005_dsc_cmd" ;;
+        esac
+
+        # Get Project ID
+        PRJ_ID=$(getprop ro.boot.prjname)
+
+        ./dts_tool remove "$TARGET_NODE" "$TARGET_PANEL" "$PRJ_ID"
         RET=$?
         if [ $RET -eq 0 ]; then
              echo "Success"
@@ -133,6 +182,15 @@ case "$1" in
         SLOT=$(getprop ro.boot.slot_suffix)
         DTBO_PARTITION="/dev/block/by-name/dtbo$SLOT"
         
+        # Detect Model and Target Panel
+        MODEL=$(getprop ro.product.vendor.model)
+        TARGET_PANEL=""
+        case "$MODEL" in
+            "RMX5200") TARGET_PANEL="qcom,mdss_dsi_panel_AE084_P_3_A0033_dsc_cmd_dvt02" ;;
+            "PLK110") TARGET_PANEL="qcom,mdss_dsi_panel_AD296_P_3_A0020_dsc_cmd" ;;
+            "PJD110") TARGET_PANEL="qcom,mdss_dsi_panel_AA545_P_3_A0005_dsc_cmd" ;;
+        esac
+
         mkdir -p "$WORK_DIR"
         mkdir -p "$BIN_DIR/dtbo_dts"
         
@@ -166,10 +224,17 @@ case "$1" in
         # 自定义刷新率处理 (真正多机型通用部分)
         if [ ! -z "$CUSTOM_RATE" ]; then
             echo "3.1 智能添加自定义刷新率 ($CUSTOM_RATE Hz)..."
+            if [ ! -z "$TARGET_PANEL" ]; then
+                echo "    - 目标面板: $TARGET_PANEL"
+            fi
             
+            # Get Project ID
+            PRJ_ID=$(getprop ro.boot.prjname)
+            echo "    - Project ID: $PRJ_ID"
+
             # 使用 dts_tool 的智能添加功能
             # 自动扫描最大 FPS 节点作为模板，支持所有 Qualcomm 平台
-            ./dts_tool smart_add "$CUSTOM_RATE"
+            ./dts_tool smart_add "$CUSTOM_RATE" "$TARGET_PANEL" "$PRJ_ID"
             
             if [ $? -eq 0 ]; then
                 echo "自定义刷新率节点已生成。"

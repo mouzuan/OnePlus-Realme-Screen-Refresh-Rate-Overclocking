@@ -46,16 +46,83 @@ int is_panel_start(const char *line) {
     return 0;
 }
 
+// Helper: Extract panel name from line
+void extract_panel_name(const char *line, char *buffer) {
+    const char *start = strstr(line, "qcom,mdss");
+    if (!start) {
+        buffer[0] = '\0';
+        return;
+    }
+    
+    // Find end of name (space, :, {, or newline)
+    const char *p = start;
+    while (*p && !isspace((unsigned char)*p) && *p != ':' && *p != '{') {
+        p++;
+    }
+    
+    int len = p - start;
+    strncpy(buffer, start, len);
+    buffer[len] = '\0';
+}
+
+// Helper: Check if file contains matching project-id
+int check_project_id(const char *filepath, const char *target_id_str) {
+    if (!target_id_str || strlen(target_id_str) == 0) return 1; // No check needed
+    
+    unsigned long long target_id = parse_hex_or_dec(target_id_str);
+    FILE *fp = fopen(filepath, "r");
+    if (!fp) return 0;
+    
+    char line[MAX_LINE];
+    int matched = 0;
+    
+    while (fgets(line, sizeof(line), fp)) {
+        if (strstr(line, "oplus,project-id")) {
+            char *start = strchr(line, '<');
+            if (start) {
+                start++;
+                char *end = strchr(start, '>');
+                if (end) {
+                    *end = '\0';
+                    char *token = strtok(start, " ");
+                    while (token) {
+                        unsigned long long id = parse_hex_or_dec(token);
+                        if (id == target_id) {
+                            matched = 1;
+                            break;
+                        }
+                        token = strtok(NULL, " ");
+                    }
+                }
+            }
+        }
+        if (matched) break;
+    }
+    
+    fclose(fp);
+    return matched;
+}
+
+typedef struct {
+    char file[256];
+    char node[256];
+    unsigned long long fps;
+    unsigned long long clock;
+    unsigned long long transfer;
+} NodeInfo;
+
 // ---- Command: SCAN ----
-void cmd_scan() {
+void cmd_scan(const char *target_panel, const char *project_id) {
     DIR *d;
     struct dirent *dir;
     char path[512];
     FILE *fp;
     char line[MAX_LINE];
     
-    printf("[\n");
-    int first = 1;
+    NodeInfo nodes[512];
+    int node_count = 0;
+    int has_2k = 0;
+    int scanned_any = 0;
 
     d = opendir(DIR_NAME);
     if (!d) {
@@ -68,6 +135,16 @@ void cmd_scan() {
             
             snprintf(path, sizeof(path), "%s/%s", DIR_NAME, dir->d_name);
             if (access(path, F_OK) != 0) snprintf(path, sizeof(path), "%s", dir->d_name);
+
+            // Project ID Check
+            if (!check_project_id(path, project_id)) {
+                continue;
+            }
+            
+            // Only scan one valid DTS file
+            if (scanned_any) {
+                 continue;
+            }
 
             fp = fopen(path, "r");
             if (!fp) continue;
@@ -83,17 +160,17 @@ void cmd_scan() {
             int in_panel = 0;
             int panel_brace_depth = 0;
 
-            // Deduplication (Simple array for FPS)
-            static int seen_fps[512];
-            static int seen_count = 0;
-            if (first) {
-                memset(seen_fps, 0, sizeof(seen_fps));
-                seen_count = 0;
-            }
-
             while (fgets(line, sizeof(line), fp)) {
                 // Check for Panel Block Entry
                 if (!in_panel && is_panel_start(line)) {
+                    if (target_panel && strlen(target_panel) > 0) {
+                        char panel_name[256];
+                        extract_panel_name(line, panel_name);
+                        if (strcmp(panel_name, target_panel) != 0) {
+                            // Skip this panel if it doesn't match target
+                            continue;
+                        }
+                    }
                     in_panel = 1;
                     panel_brace_depth = 0;
                 }
@@ -159,26 +236,25 @@ void cmd_scan() {
                         }
 
                         if (timing_brace_depth == 0 && strstr(line, "};")) {
-                            // Filter 1: Must be WQHD (hide 1080p/others) - Relaxed to show all for multi-model
-                            // Actually, let's keep it simple: Show all timing nodes found.
-                            
-                            // Filter 2: Deduplicate by FPS
-                            int is_duplicate = 0;
-                            for (int i = 0; i < seen_count; i++) {
-                                if (seen_fps[i] == (int)fps) {
-                                    is_duplicate = 1;
-                                    break;
-                                }
+                            // Filter 1: Only show standard display modes (WQHD/FHD/QHD) to avoid AOD/Test nodes
+                            int is_display_mode = 0;
+                            if (strstr(current_node, "wqhd") || strstr(current_node, "fhd") || strstr(current_node, "qhd")) {
+                                is_display_mode = 1;
                             }
 
-                            if (!is_duplicate && fps > 0) {
-                                if (!first) printf(",\n");
-                                printf("  {\"file\": \"%s\", \"node\": \"%s\", \"fps\": %llu, \"clock\": %llu, \"transfer\": %llu}",
-                                       dir->d_name, current_node, fps, clock, transfer);
-                                first = 0;
-                                
-                                if (seen_count < 512) {
-                                    seen_fps[seen_count++] = (int)fps;
+                            // Filter 2: Exclude low FPS (<48Hz)
+                            if (is_display_mode && fps >= 48) {
+                                if (node_count < 512) {
+                                    strncpy(nodes[node_count].file, dir->d_name, 255);
+                                    strncpy(nodes[node_count].node, current_node, 255);
+                                    nodes[node_count].fps = fps;
+                                    nodes[node_count].clock = clock;
+                                    nodes[node_count].transfer = transfer;
+                                    
+                                    if (strstr(current_node, "wqhd") || strstr(current_node, "qhd")) {
+                                        has_2k = 1;
+                                    }
+                                    node_count++;
                                 }
                             }
                             
@@ -188,14 +264,31 @@ void cmd_scan() {
                 }
             }
             fclose(fp);
+            scanned_any = 1;
         }
         closedir(d);
+    }
+    
+    // Output JSON
+    printf("[\n");
+    int first = 1;
+    for (int i = 0; i < node_count; i++) {
+        int is_fhd = (strstr(nodes[i].node, "fhd") != NULL);
+        
+        // If 2K exists, hide FHD
+        if (has_2k && is_fhd) {
+            continue;
+        }
+        
+        if (!first) printf(",\n");
+        printf("  {\"file\": \"%s\", \"node\": \"%s\", \"fps\": %llu, \"clock\": %llu, \"transfer\": %llu}",
+               nodes[i].file, nodes[i].node, nodes[i].fps, nodes[i].clock, nodes[i].transfer);
+        first = 0;
     }
     printf("\n]\n");
 }
 
-// ---- Command: REMOVE ----
-void cmd_remove(const char *target_node) {
+void cmd_remove(const char *target_node, const char *target_panel, const char *project_id) {
     DIR *d;
     struct dirent *dir;
     char path[512];
@@ -211,6 +304,11 @@ void cmd_remove(const char *target_node) {
             snprintf(path, sizeof(path), "%s/%s", DIR_NAME, dir->d_name);
             if (access(path, F_OK) != 0) snprintf(path, sizeof(path), "%s", dir->d_name);
             
+            // Project ID Check
+            if (!check_project_id(path, project_id)) {
+                continue;
+            }
+
             snprintf(temp_path, sizeof(temp_path), "%s.tmp", path);
 
             FILE *in = fopen(path, "r");
@@ -225,11 +323,26 @@ void cmd_remove(const char *target_node) {
             // Scope filtering
             int in_panel = 0;
             int panel_brace_depth = 0;
+            int panel_matched = 1; // Default to match if no target_panel
+            int current_index = 0;
 
             while (fgets(line, sizeof(line), in)) {
                 if (!in_panel && is_panel_start(line)) {
+                    if (target_panel && strlen(target_panel) > 0) {
+                        char panel_name[256];
+                        extract_panel_name(line, panel_name);
+                        if (strcmp(panel_name, target_panel) != 0) {
+                            panel_matched = 0;
+                        } else {
+                            panel_matched = 1;
+                        }
+                    } else {
+                        panel_matched = 1;
+                    }
+
                     in_panel = 1;
                     panel_brace_depth = 0;
+                    current_index = 0;
                 }
 
                 if (in_panel) {
@@ -241,12 +354,14 @@ void cmd_remove(const char *target_node) {
                     }
                     if (panel_brace_depth <= 0 && strstr(line, "};")) {
                         in_panel = 0;
+                        panel_matched = 0; // Reset match status outside panel
                     }
                 }
 
                 if (!skipping) {
                     int match = 0;
-                    if (in_panel) {
+                    // Only match nodes if we are inside the CORRECT panel
+                    if (in_panel && panel_matched) {
                         char *loc = strstr(line, target_node);
                         if (loc) {
                             char *after = loc + strlen(target_node);
@@ -274,8 +389,28 @@ void cmd_remove(const char *target_node) {
                             skipping = 0; 
                         }
                         modified = 1;
-                        printf("Removing node: %s from %s\n", target_node, dir->d_name);
+                        printf("Removing node: %s from %s (Panel Match: Yes)\n", target_node, dir->d_name);
                         continue; 
+                    }
+                    
+                    // Re-indexing logic for REMOVE
+                    if (in_panel && panel_matched && strstr(line, "cell-index")) {
+                        char *start = strchr(line, '<');
+                        if (start) {
+                            char *end = strchr(start, '>');
+                            if (end) {
+                                *end = '\0';
+                                char prefix[MAX_LINE];
+                                strncpy(prefix, line, start - line + 1);
+                                prefix[start - line + 1] = '\0';
+                                
+                                char suffix[MAX_LINE];
+                                strcpy(suffix, end + 1);
+                                
+                                fprintf(out, "%s0x%x>%s", prefix, current_index++, suffix);
+                                continue; 
+                            }
+                        }
                     }
                 } else {
                     char *p = line;
@@ -308,7 +443,7 @@ void cmd_remove(const char *target_node) {
 }
 
 // ---- Command: ADD (Internal) ----
-void internal_add_node(const char *filename, const char *base_node, int target_fps) {
+void internal_add_node(const char *filename, const char *base_node, int target_fps, const char *target_panel) {
     char path[512];
     char temp_path[512];
     snprintf(path, sizeof(path), "%s/%s", DIR_NAME, filename);
@@ -331,17 +466,53 @@ void internal_add_node(const char *filename, const char *base_node, int target_f
     
     int in_panel = 0;
     int panel_brace_depth = 0;
+    int panel_matched = 1;
 
-    int max_cell_index = -1;
     int target_exists = 0;
     char target_node_name[128];
-    sprintf(target_node_name, "timing@wqhd_sdc_%d", target_fps); // Default naming, can be adjusted
-    // Note: The base_node might have a different prefix. We should reuse base_node's prefix if possible.
-    // For now, hardcoded wqhd_sdc is risky for multi-model.
-    // Better: Derive name from base_node name.
+    
+    // Predict target node name based on base_node
+    strcpy(target_node_name, base_node);
+    char *last_underscore = strrchr(target_node_name, '_');
+    if (last_underscore) {
+        sprintf(last_underscore + 1, "%d", target_fps);
+    } else {
+        sprintf(target_node_name, "%s_%d", base_node, target_fps);
+    }
+
+    // Pre-check for existence
+    FILE *pre_check = fopen(path, "r");
+    if (pre_check) {
+        char pre_buf[MAX_LINE];
+        while (fgets(pre_buf, sizeof(pre_buf), pre_check)) {
+             if (strstr(pre_buf, "timing@") && strstr(pre_buf, target_node_name)) {
+                 target_exists = 1;
+                 break;
+             }
+        }
+        fclose(pre_check);
+    }
+
+    if (target_exists) {
+        printf("Skipping: %s already exists in %s\n", target_node_name, filename);
+        fclose(in);
+        return;
+    }
 
     while (fgets(line, sizeof(line), in)) {
         if (!in_panel && is_panel_start(line)) {
+            if (target_panel && strlen(target_panel) > 0) {
+                char panel_name[256];
+                extract_panel_name(line, panel_name);
+                if (strcmp(panel_name, target_panel) != 0) {
+                    panel_matched = 0;
+                } else {
+                    panel_matched = 1;
+                }
+            } else {
+                panel_matched = 1;
+            }
+
             in_panel = 1;
             panel_brace_depth = 0;
         }
@@ -355,23 +526,12 @@ void internal_add_node(const char *filename, const char *base_node, int target_f
             }
             if (panel_brace_depth <= 0 && strstr(line, "};")) {
                 in_panel = 0;
+                panel_matched = 0;
             }
         }
         
-        if (in_panel) {
-            if (strstr(line, "cell-index")) {
-                char *v = strchr(line, '<');
-                if (v) {
-                    int val = (int)parse_hex_or_dec(v + 1);
-                    if (val > max_cell_index) max_cell_index = val;
-                }
-            }
-
-            // Check if target node already exists (approximate check)
-            if (strstr(line, "timing@") && strstr(line, target_node_name)) {
-                 target_exists = 1;
-            }
-
+        // Only process if we are in the correct panel
+        if (in_panel && panel_matched) {
             if (strstr(line, base_node)) {
                 char *loc = strstr(line, base_node);
                  if (loc) {
@@ -382,8 +542,6 @@ void internal_add_node(const char *filename, const char *base_node, int target_f
                          found_base = 1;
                          
                          // Fix target node name to match base node pattern
-                         // e.g. base: timing@sdc_fhd_120 -> target: timing@sdc_fhd_123
-                         // We replace the last number.
                          strcpy(target_node_name, base_node);
                          char *last_underscore = strrchr(target_node_name, '_');
                          if (last_underscore) {
@@ -427,15 +585,8 @@ void internal_add_node(const char *filename, const char *base_node, int target_f
     }
     rewind(in); 
 
-    if (target_exists) {
-        printf("Skipping: %s already exists in %s\n", target_node_name, filename);
-        fclose(in);
-        remove(temp_path);
-        return;
-    }
-
     if (!found_base) {
-        printf("Error: Base node %s not found in %s\n", base_node, filename);
+        // printf("Error: Base node %s not found in %s (or wrong panel)\n", base_node, filename);
         fclose(in);
         remove(temp_path);
         return;
@@ -448,11 +599,29 @@ void internal_add_node(const char *filename, const char *base_node, int target_f
     int inserted = 0;
     in_panel = 0;
     panel_brace_depth = 0;
+    panel_matched = 1;
     
+    int in_base_node = 0;
+    int base_node_brace_depth = 0;
+    int current_index = 0;
+
     while (fgets(line, sizeof(line), in)) {
         if (!in_panel && is_panel_start(line)) {
+            if (target_panel && strlen(target_panel) > 0) {
+                char panel_name[256];
+                extract_panel_name(line, panel_name);
+                if (strcmp(panel_name, target_panel) != 0) {
+                    panel_matched = 0;
+                } else {
+                    panel_matched = 1;
+                }
+            } else {
+                panel_matched = 1;
+            }
+
             in_panel = 1;
             panel_brace_depth = 0;
+            current_index = 0;
         }
 
         if (in_panel) {
@@ -464,113 +633,171 @@ void internal_add_node(const char *filename, const char *base_node, int target_f
             }
             if (panel_brace_depth <= 0 && strstr(line, "};")) {
                 in_panel = 0;
+                // panel_matched reset below
             }
         }
 
-        fputs(line, out);
-        
-        // Insert AFTER the base node block is fully written (not implemented here easily)
-        // Alternative: Insert at the END of the panel block (safest)
-        
-        // Check if we are closing the panel block
-        if (!inserted && !in_panel && strstr(line, "};") && found_base) {
-            // Wait, we need to insert BEFORE the panel closing brace "};"
-            // The logic above prints the line, so we are outside now?
-            // Actually, we should check *before* writing the line if it closes the panel.
-            // But simplifying: just use sed-like logic or process carefully?
-            // Let's rely on standard logic:
-            // We printed "};" just now. That's wrong. We need to insert before it.
-        }
-    }
-    
-    // Re-do write logic to insert correctly
-    fclose(out);
-    fclose(in);
-    
-    // Quick Hack: Re-open and use memory buffer or simple insertion
-    // Since we are C, let's just do it properly in the loop.
-    
-    in = fopen(path, "r");
-    out = fopen(temp_path, "w");
-    
-    in_panel = 0;
-    panel_brace_depth = 0;
-    inserted = 0;
-
-    while (fgets(line, sizeof(line), in)) {
-        int closing_panel = 0;
-
-        if (!in_panel && is_panel_start(line)) {
-            in_panel = 1;
-            panel_brace_depth = 0;
-        }
-
-        if (in_panel) {
-            char *p = line;
-            while (*p) {
-                if (*p == '{') panel_brace_depth++;
-                if (*p == '}') panel_brace_depth--;
-                p++;
-            }
-            if (panel_brace_depth <= 0 && strstr(line, "};")) {
-                closing_panel = 1;
-                in_panel = 0;
-            }
-        }
-
-        if (closing_panel && !inserted && found_base) {
-            // Generate New Node Content
-            replace_str(base_content, base_node, target_node_name);
-            
-            // Calc new values
-            if (base_fps > 0) {
-                unsigned long long new_clock = base_clock * target_fps / base_fps;
-                unsigned long long new_transfer = base_transfer * base_fps / target_fps;
-                
-                char old_val[64], new_val[64];
-                
-                sprintf(old_val, "<%llu>", base_clock);
-                sprintf(new_val, "<%llu>", new_clock);
-                replace_str(base_content, old_val, new_val);
-                
-                sprintf(old_val, "<%llu>", base_fps);
-                sprintf(new_val, "<0x%x>", target_fps); // Hex for fps
-                replace_str(base_content, old_val, new_val);
-                
-                sprintf(old_val, "<%llu>", base_transfer);
-                sprintf(new_val, "<%llu>", new_transfer);
-                replace_str(base_content, old_val, new_val);
-                
-                // Update cell-index
-                sprintf(old_val, "cell-index = <");
-                char *ci = strstr(base_content, old_val);
-                if (ci) {
-                    // Find actual value start
-                    char *val_start = strchr(ci, '<');
-                    if (val_start) {
-                        char *val_end = strchr(val_start, '>');
-                        if (val_end) {
-                            // Reconstruct string with new index
-                            *val_end = '\0'; // Temporarily terminate
-                            char prefix[MAX_BLOCK];
-                            strncpy(prefix, base_content, val_start - base_content + 1);
-                            prefix[val_start - base_content + 1] = '\0';
-                            
-                            char suffix[MAX_BLOCK];
-                            strcpy(suffix, val_end + 1);
-                            
-                            sprintf(base_content, "%s%d>%s", prefix, max_cell_index + 1, suffix);
-                        }
-                    }
+        // Auto-sort cell-index for existing nodes
+        if (in_panel && panel_matched && strstr(line, "cell-index")) {
+            char *start = strchr(line, '<');
+            if (start) {
+                char *end = strchr(start, '>');
+                if (end) {
+                    *end = '\0';
+                    char prefix[MAX_LINE];
+                    strncpy(prefix, line, start - line + 1);
+                    prefix[start - line + 1] = '\0';
+                    
+                    char suffix[MAX_LINE];
+                    strcpy(suffix, end + 1);
+                    
+                    fprintf(out, "%s0x%x>%s", prefix, current_index++, suffix);
+                    
+                    // Logic to insert AFTER the base node closes (check if this was the base node's cell-index - usually inside node)
+                    // We handle insertion check below
+                    // BUT we must continue to skip fputs
+                    goto check_insertion;
                 }
             }
-            
-            fprintf(out, "\n%s", base_content);
-            inserted = 1;
-            printf("Added node %s (%dHz) to %s\n", target_node_name, target_fps, filename);
         }
 
         fputs(line, out);
+
+check_insertion:
+        // Logic to insert AFTER the base node closes
+        if (in_panel && panel_matched && !inserted && found_base) {
+            if (!in_base_node) {
+                 if (strstr(line, base_node)) {
+                     char *loc = strstr(line, base_node);
+                     char *after = loc + strlen(base_node);
+                     while (*after && isspace((unsigned char)*after)) after++;
+                     if (*after == '{' || *after == '\0' || *after == '\r' || *after == '\n') {
+                         in_base_node = 1;
+                         base_node_brace_depth = 0;
+                     }
+                 }
+            }
+            
+            if (in_base_node) {
+                 char *p = line;
+                 while (*p) {
+                     if (*p == '{') base_node_brace_depth++;
+                     if (*p == '}') base_node_brace_depth--;
+                     p++;
+                 }
+                 
+                 if (base_node_brace_depth <= 0 && strstr(line, "};")) {
+                    // Base node closed. Insert new node here.
+                    
+                    // Generate New Node Content
+                    replace_str(base_content, base_node, target_node_name);
+                    
+                    // Calc new values
+                    if (base_fps > 0) {
+                        unsigned long long new_clock = base_clock * target_fps / base_fps;
+                        unsigned long long new_transfer = base_transfer * base_fps / target_fps;
+                        
+                        // Line-by-line replacement for safety and correctness
+                        char *ptr = base_content;
+                        char new_block[MAX_BLOCK] = "";
+                        char line_buf[MAX_LINE];
+                        
+                        while (ptr && *ptr) {
+                            char *eol = strchr(ptr, '\n');
+                            int len;
+                            if (eol) {
+                                len = eol - ptr + 1;
+                            } else {
+                                len = strlen(ptr);
+                            }
+                            
+                            strncpy(line_buf, ptr, len);
+                            line_buf[len] = '\0';
+                            
+                            // Check for keys to replace
+                            if (strstr(line_buf, "qcom,mdss-dsi-panel-clockrate")) {
+                                char *start = strchr(line_buf, '<');
+                                if (start) {
+                                    char *end = strchr(start, '>');
+                                    if (end) {
+                                        *end = '\0';
+                                        char prefix[MAX_LINE];
+                                        strncpy(prefix, line_buf, start - line_buf + 1);
+                                        prefix[start - line_buf + 1] = '\0';
+                                        
+                                        char suffix[MAX_LINE];
+                                        strcpy(suffix, end + 1);
+                                        
+                                        sprintf(line_buf, "%s%llu>%s", prefix, new_clock, suffix);
+                                    }
+                                }
+                            } else if (strstr(line_buf, "qcom,mdss-dsi-panel-framerate")) {
+                                char *start = strchr(line_buf, '<');
+                                if (start) {
+                                    char *end = strchr(start, '>');
+                                    if (end) {
+                                        *end = '\0';
+                                        char prefix[MAX_LINE];
+                                        strncpy(prefix, line_buf, start - line_buf + 1);
+                                        prefix[start - line_buf + 1] = '\0';
+                                        
+                                        char suffix[MAX_LINE];
+                                        strcpy(suffix, end + 1);
+                                        
+                                        sprintf(line_buf, "%s0x%x>%s", prefix, target_fps, suffix);
+                                    }
+                                }
+                            } else if (strstr(line_buf, "qcom,mdss-mdp-transfer-time-us")) {
+                                char *start = strchr(line_buf, '<');
+                                if (start) {
+                                    char *end = strchr(start, '>');
+                                    if (end) {
+                                        *end = '\0';
+                                        char prefix[MAX_LINE];
+                                        strncpy(prefix, line_buf, start - line_buf + 1);
+                                        prefix[start - line_buf + 1] = '\0';
+                                        
+                                        char suffix[MAX_LINE];
+                                        strcpy(suffix, end + 1);
+                                        
+                                        sprintf(line_buf, "%s%llu>%s", prefix, new_transfer, suffix);
+                                    }
+                                }
+                            } else if (strstr(line_buf, "cell-index")) {
+                                // Already handled? No, we need to handle it here too for the new node content
+                                char *start = strchr(line_buf, '<');
+                                if (start) {
+                                    char *end = strchr(start, '>');
+                                    if (end) {
+                                        *end = '\0';
+                                        char prefix[MAX_LINE];
+                                        strncpy(prefix, line_buf, start - line_buf + 1);
+                                        prefix[start - line_buf + 1] = '\0';
+                                        
+                                        char suffix[MAX_LINE];
+                                        strcpy(suffix, end + 1);
+                                        
+                                        sprintf(line_buf, "%s0x%x>%s", prefix, current_index++, suffix);
+                                    }
+                                }
+                            }
+
+                            strcat(new_block, line_buf);
+                            
+                            if (eol) ptr = eol + 1;
+                            else break;
+                        }
+                        strcpy(base_content, new_block);
+                    }
+                    
+                    fprintf(out, "\n%s", base_content);
+                    inserted = 1;
+                    printf("Added node %s (%dHz) to %s (Panel Match: Yes)\n", target_node_name, target_fps, filename);
+                    
+                    in_base_node = 0;
+                 }
+            }
+        }
     }
     
     fclose(in);
@@ -581,56 +808,84 @@ void internal_add_node(const char *filename, const char *base_node, int target_f
 }
 
 
-void cmd_add(const char *base_node, int target_fps) {
+void cmd_add(const char *base_node, int target_fps, const char *target_panel, const char *project_id) {
     DIR *d;
     struct dirent *dir;
+    char path[512];
     d = opendir(DIR_NAME);
     if (!d) d = opendir(".");
     if (d) {
         while ((dir = readdir(d)) != NULL) {
             if (!strstr(dir->d_name, ".dts")) continue;
-            internal_add_node(dir->d_name, base_node, target_fps);
+            snprintf(path, sizeof(path), "%s/%s", DIR_NAME, dir->d_name);
+            if (access(path, F_OK) != 0) snprintf(path, sizeof(path), "%s", dir->d_name);
+            
+            // Project ID Check
+            if (!check_project_id(path, project_id)) {
+                continue;
+            }
+            
+            internal_add_node(dir->d_name, base_node, target_fps, target_panel);
         }
+
         closedir(d);
     }
 }
 
 // ---- Command: SMART ADD ----
-void cmd_smart_add(int target_fps) {
+void cmd_smart_add(int target_fps, const char *target_panel, const char *project_id) {
+    // 1. Scan for best base node
     DIR *d;
     struct dirent *dir;
+    char path[512];
+    
+    char best_base_node[128] = "";
+    unsigned long long best_diff = 999999;
+    char best_file[256] = "";
+
     d = opendir(DIR_NAME);
     if (!d) d = opendir(".");
-    
     if (d) {
         while ((dir = readdir(d)) != NULL) {
             if (!strstr(dir->d_name, ".dts")) continue;
-            
-            char path[512];
             snprintf(path, sizeof(path), "%s/%s", DIR_NAME, dir->d_name);
             if (access(path, F_OK) != 0) snprintf(path, sizeof(path), "%s", dir->d_name);
             
+            // Project ID Check
+            if (!check_project_id(path, project_id)) {
+                continue;
+            }
+            
             FILE *fp = fopen(path, "r");
             if (!fp) continue;
-
-            char best_node[256] = "";
-            unsigned long long max_fps = 0;
             
             char line[MAX_LINE];
             int in_panel = 0;
             int panel_brace_depth = 0;
             int in_timing = 0;
             int timing_brace_depth = 0;
-            char current_node[256] = "";
-            unsigned long long current_fps = 0;
+            char current_node[256];
+            unsigned long long fps = 0;
+            int panel_matched = 1;
 
-            // 1. Scan for Max FPS Node
             while (fgets(line, sizeof(line), fp)) {
                 if (!in_panel && is_panel_start(line)) {
+                    if (target_panel && strlen(target_panel) > 0) {
+                        char panel_name[256];
+                        extract_panel_name(line, panel_name);
+                        if (strcmp(panel_name, target_panel) != 0) {
+                            panel_matched = 0;
+                        } else {
+                            panel_matched = 1;
+                        }
+                    } else {
+                        panel_matched = 1;
+                    }
+
                     in_panel = 1;
                     panel_brace_depth = 0;
                 }
-
+                
                 if (in_panel) {
                     char *p = line;
                     while (*p) {
@@ -640,9 +895,13 @@ void cmd_smart_add(int target_fps) {
                     }
                     if (panel_brace_depth <= 0 && strstr(line, "};")) {
                         in_panel = 0;
+                        panel_matched = 0;
                     }
-
-                    if (strstr(line, "timing@")) {
+                }
+                
+                // Only scan timings if in correct panel
+                if (in_panel && panel_matched) {
+                     if (strstr(line, "timing@")) {
                         char *start = strstr(line, "timing@");
                         char *end = start + strlen("timing@");
                         while (*end && !isspace((unsigned char)*end) && *end != '{') end++;
@@ -651,9 +910,10 @@ void cmd_smart_add(int target_fps) {
                             if (len >= sizeof(current_node)) len = sizeof(current_node) - 1;
                             strncpy(current_node, start, len);
                             current_node[len] = '\0';
+                            
                             in_timing = 1;
                             timing_brace_depth = 0;
-                            current_fps = 0;
+                            fps = 0;
                         }
                     }
 
@@ -668,13 +928,26 @@ void cmd_smart_add(int target_fps) {
                         char *val_start;
                         if ((val_start = strstr(line, "qcom,mdss-dsi-panel-framerate"))) {
                             char *v = strchr(val_start, '<');
-                            if (v) current_fps = parse_hex_or_dec(v + 1);
+                            if (v) fps = parse_hex_or_dec(v + 1);
                         }
-
+                        
                         if (timing_brace_depth == 0 && strstr(line, "};")) {
-                            if (current_fps > max_fps) {
-                                max_fps = current_fps;
-                                strcpy(best_node, current_node);
+                            // Candidate found
+                            if (fps > 0) {
+                                long long diff = (long long)fps - target_fps;
+                                if (diff < 0) diff = -diff;
+                                
+                                // Prefer WQHD/FHD nodes
+                                // int bonus = 0;
+                                // if (strstr(current_node, "wqhd")) bonus = 50;
+                                // if (strstr(current_node, "fhd")) bonus = 30;
+                                
+                                // Heuristic: Find closest FPS, prefer standard nodes
+                                if (diff < best_diff) { // Simple logic for now
+                                    best_diff = diff;
+                                    strcpy(best_base_node, current_node);
+                                    strcpy(best_file, dir->d_name);
+                                }
                             }
                             in_timing = 0;
                         }
@@ -682,38 +955,77 @@ void cmd_smart_add(int target_fps) {
                 }
             }
             fclose(fp);
-            
-            // 2. Add Node if Base Found
-            if (max_fps > 0 && strlen(best_node) > 0) {
-                printf("Found best base node: %s (%llu Hz) in %s\n", best_node, max_fps, dir->d_name);
-                internal_add_node(dir->d_name, best_node, target_fps);
-            } else {
-                printf("No suitable base node found in %s\n", dir->d_name);
-            }
         }
         closedir(d);
+    }
+    
+    if (strlen(best_base_node) > 0) {
+        printf("Smart Add: Best base node %s found in %s\n", best_base_node, best_file);
+        
+        // Apply to ALL matching files, not just the best file
+        // Re-scan directory to find all matching files and apply
+        DIR *d2 = opendir(DIR_NAME);
+        if (!d2) d2 = opendir(".");
+        if (d2) {
+            struct dirent *dir2;
+            char path2[512];
+            while ((dir2 = readdir(d2)) != NULL) {
+                if (!strstr(dir2->d_name, ".dts")) continue;
+                snprintf(path2, sizeof(path2), "%s/%s", DIR_NAME, dir2->d_name);
+                if (access(path2, F_OK) != 0) snprintf(path2, sizeof(path2), "%s", dir2->d_name);
+                
+                if (check_project_id(path2, project_id)) {
+                    internal_add_node(dir2->d_name, best_base_node, target_fps, target_panel);
+                }
+            }
+            closedir(d2);
+        }
+    } else {
+        printf("Smart Add: No suitable base node found.\n");
     }
 }
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        printf("Usage: %s <scan|remove|add|smart_add> [args]\n", argv[0]);
+        printf("Usage: %s <command> [args]\n", argv[0]);
+        printf("Commands:\n");
+        printf("  scan [target_panel] [project_id]\n");
+        printf("  add <base_node> <fps> [target_panel] [project_id]\n");
+        printf("  smart_add <fps> [target_panel] [project_id]\n");
+        printf("  remove <node_name> [target_panel] [project_id]\n");
         return 1;
     }
 
     if (strcmp(argv[1], "scan") == 0) {
-        cmd_scan();
-    } else if (strcmp(argv[1], "remove") == 0) {
-        if (argc < 3) return 1;
-        cmd_remove(argv[2]);
+        const char *panel = (argc >= 3) ? argv[2] : NULL;
+        const char *prj = (argc >= 4) ? argv[3] : NULL;
+        cmd_scan(panel, prj);
     } else if (strcmp(argv[1], "add") == 0) {
-        if (argc < 4) return 1;
-        cmd_add(argv[2], atoi(argv[3]));
+        if (argc < 4) {
+            printf("Usage: add <base_node> <fps> [target_panel] [project_id]\n");
+            return 1;
+        }
+        const char *panel = (argc >= 5) ? argv[4] : NULL;
+        const char *prj = (argc >= 6) ? argv[5] : NULL;
+        cmd_add(argv[2], atoi(argv[3]), panel, prj);
     } else if (strcmp(argv[1], "smart_add") == 0) {
-        if (argc < 3) return 1;
-        cmd_smart_add(atoi(argv[2]));
+        if (argc < 3) {
+            printf("Usage: smart_add <fps> [target_panel] [project_id]\n");
+            return 1;
+        }
+        const char *panel = (argc >= 4) ? argv[3] : NULL;
+        const char *prj = (argc >= 5) ? argv[4] : NULL;
+        cmd_smart_add(atoi(argv[2]), panel, prj);
+    } else if (strcmp(argv[1], "remove") == 0) {
+        if (argc < 3) {
+            printf("Usage: remove <node_name> [target_panel] [project_id]\n");
+            return 1;
+        }
+        const char *panel = (argc >= 4) ? argv[3] : NULL;
+        const char *prj = (argc >= 5) ? argv[4] : NULL;
+        cmd_remove(argv[2], panel, prj);
     } else {
-        printf("Unknown command\n");
+        printf("Unknown command: %s\n", argv[1]);
         return 1;
     }
 

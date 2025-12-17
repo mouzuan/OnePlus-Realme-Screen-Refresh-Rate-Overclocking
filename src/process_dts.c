@@ -630,6 +630,11 @@ void process_file(const char *filename) {
     int pjd110_cell_index = 0;
     const char *last_panel_start = NULL;
 
+    // Track generated nodes in this session to prevent duplicates
+    int generated_wqhd_123 = 0;
+    int generated_wqhd_high[7] = {0}; // 150, 155, 160, 165, 170, 175, 180
+    int generated_fhd_high[7] = {0};  // 170-199 (OnePlus 15)
+
     while ((p = strstr(cursor, "timing@"))) {
         // Write everything before this block
         fwrite(cursor, 1, p - cursor, out);
@@ -717,32 +722,38 @@ void process_file(const char *filename) {
                 fputs(current_block, out);
                 fputs("\n", out);
                 
-                // Generate 123Hz
-                printf("Generating 123Hz node...\n");
-                char new_block[MAX_BLOCK];
-                strcpy(new_block, current_block);
-                
-                replace_str(new_block, "timing@wqhd_sdc_120 {", "timing@wqhd_sdc_123 {");
-                
-                unsigned long long base_clock = get_prop_u64(current_block, "qcom,mdss-dsi-panel-clockrate");
-                unsigned int base_fps = get_prop_u64(current_block, "qcom,mdss-dsi-panel-framerate");
-                if (base_fps < 110 || base_fps > 130) base_fps = 120;
-                
-                int target_fps = 123;
-                unsigned long long new_clock = base_clock * target_fps / base_fps;
-                unsigned int base_transfer = get_prop_u64(current_block, "qcom,mdss-mdp-transfer-time-us");
-                unsigned int new_transfer = 0;
-                if (base_transfer > 0) new_transfer = base_transfer * base_fps / target_fps;
-                
-                update_prop_u64(new_block, "qcom,mdss-dsi-panel-clockrate", new_clock);
-                update_prop_u64(new_block, "qcom,mdss-dsi-panel-framerate", target_fps);
-                if (new_transfer > 0) update_prop_u64(new_block, "qcom,mdss-mdp-transfer-time-us", new_transfer);
-                update_prop_u64(new_block, "cell-index", 0x8);
-                
-                fputs("\n", out);
-                fputs(indent, out);
-                fputs(new_block, out);
-                fputs("\n", out);
+                // Check if target node already exists
+                if (strstr(buffer, "timing@wqhd_sdc_123") || generated_wqhd_123) {
+                    printf("Node timing@wqhd_sdc_123 already exists, skipping generation.\n");
+                } else {
+                    // Generate 123Hz
+                    generated_wqhd_123 = 1;
+                    printf("Generating 123Hz node...\n");
+                    char new_block[MAX_BLOCK];
+                    strcpy(new_block, current_block);
+                    
+                    replace_str(new_block, "timing@wqhd_sdc_120 {", "timing@wqhd_sdc_123 {");
+                    
+                    unsigned long long base_clock = get_prop_u64(current_block, "qcom,mdss-dsi-panel-clockrate");
+                    unsigned int base_fps = get_prop_u64(current_block, "qcom,mdss-dsi-panel-framerate");
+                    if (base_fps < 110 || base_fps > 130) base_fps = 120;
+                    
+                    int target_fps = 123;
+                    unsigned long long new_clock = base_clock * target_fps / base_fps;
+                    unsigned int base_transfer = get_prop_u64(current_block, "qcom,mdss-mdp-transfer-time-us");
+                    unsigned int new_transfer = 0;
+                    if (base_transfer > 0) new_transfer = base_transfer * base_fps / target_fps;
+                    
+                    update_prop_u64(new_block, "qcom,mdss-dsi-panel-clockrate", new_clock);
+                    update_prop_u64(new_block, "qcom,mdss-dsi-panel-framerate", target_fps);
+                    if (new_transfer > 0) update_prop_u64(new_block, "qcom,mdss-mdp-transfer-time-us", new_transfer);
+                    update_prop_u64(new_block, "cell-index", 0x8);
+                    
+                    fputs("\n", out);
+                    fputs(indent, out);
+                    fputs(new_block, out);
+                    fputs("\n", out);
+                }
             }
             // 4. WQHD 144Hz -> Add 150-180Hz (Auto Calc)
             else if (strstr(node_name, "wqhd_sdc_144")) {
@@ -755,6 +766,15 @@ void process_file(const char *filename) {
                     
                     for (int i=0; i<7; i++) {
                         int target_fps = freqs[i];
+                        char target_node_name[64];
+                        sprintf(target_node_name, "timing@wqhd_sdc_%d", target_fps);
+                        
+                        if (strstr(buffer, target_node_name) || generated_wqhd_high[i]) {
+                             printf("Node %s already exists, skipping generation.\n", target_node_name);
+                             continue;
+                        }
+
+                        generated_wqhd_high[i] = 1;
                         printf("Generating %dHz node...\n", target_fps);
                         
                         char new_block[MAX_BLOCK];
@@ -878,6 +898,15 @@ void process_file(const char *filename) {
                 
                 for (int i=0; i<7; i++) {
                     int target_fps = freqs[i];
+                    char target_node_name[64];
+                    sprintf(target_node_name, "timing@sdc_fhd_%d", target_fps);
+                    
+                    if (strstr(buffer, target_node_name) || generated_fhd_high[i]) {
+                         printf("Node %s already exists, skipping generation.\n", target_node_name);
+                         continue;
+                    }
+
+                    generated_fhd_high[i] = 1;
                     printf("Generating %dHz node (New)...\n", target_fps);
                     
                     char new_block[MAX_BLOCK];
