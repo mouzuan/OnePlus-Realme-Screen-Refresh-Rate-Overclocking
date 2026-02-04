@@ -1,4 +1,12 @@
-# OnePlus & Realme 修改 dtbo 模块
+# OnePlus & Realme 屏幕刷新率超频模块 - [OnePlus-Realme-Screen-R efresh-Rate-Overclocking]
+
+> **🔔 关于此分支**
+> * **本分支维护者**：[某钻/mouzuan]
+> * **原项目作者**：慕容茹艳 (酷安 @慕容雪绒)
+> * **项目关系**：此仓库是基于[原项目](https://github.com/murongruyan/murongchaopin)的 **分支（Fork）**，遵循 **GPL 3.0 协议**。
+> * **主要修改**：只保留修改dtbo部分，其余全部剔除。
+> * **重要**：原始版权、许可证及致谢均归属于原项目作者及贡献者。
+> ---
 
 ## 简介
 这是一个专为 OnePlus 和 Realme 设备设计的 KernelSU/Magisk 模块，解锁屏幕刷新率限制，支持更多高刷档位。通过修改 DTBO (Device Tree Blob Overlay)，本模块可以让您的设备支持自定义的高刷新率，带来更流畅的视觉体验。
@@ -28,29 +36,14 @@
 
 ## 注意事项
 - **风险提示**：修改屏幕刷新率和系统底层参数存在一定风险，可能导致屏幕显示异常、耗电增加或系统不稳定。请务必在操作前备份重要数据。
-- **黑屏处理**：如果应用新的刷新率后出现黑屏，请尝试强制重启手机。如果问题依旧，请进入安全模式或通过 TWRP/ADB 删除本模块 (`/data/adb/modules/murongchaopin`)。
-- **兼容性**：本模块目前仅适配 **OnePlus Ace 3v(PJF110)**。其他 OnePlus/Realme 机型请谨慎测试。
+- **黑屏处理**：如果应用新的刷新率后出现黑屏，请尝试强制重启手机。如果问题依旧，请进入安全模式。
+- **兼容性**：本模块目前仅适配 **OnePlus Ace 3V(PJF110)**。其他 OnePlus/Realme 机型请谨慎测试。
 
 ## 更新日志
 请查看 [update.json](https://raw.githubusercontent.com/murongruyan/murongchaopin/main/update.json) 获取最新版本信息。
 
 ## 开源协议
 本项目采用 [GPL 3.0 License](LICENSE) 开源。
-
-# OnePlus & Realme DTBO 超频模块 - [你的分支名]
-
-> **🔔 关于此分支**
-> * **本分支维护者**：[你的名字/昵称，如“某钻”]
-> * **原项目作者**：慕容茹艳 (酷安 @慕容雪绒)
-> * **项目关系**：此仓库是基于[原项目](https://github.com/murongruyan/murongchaopin)的 **分支（Fork）**，遵循 **GPL 3.0 协议**。
-> * **主要修改**：
->   * ✅ **保留并继承**了原项目的所有超频刷新率功能。
->   * ➕ **新增适配**了以下机型：[请在此处列出你新增的具体机型，例如 Realme GT Neo6, OnePlus Ace 3V 等]。
->   * 🔧 其他改进：[可选，例如修复了某个Bug，优化了WebUI等]。
->
-> * **重要**：原始版权、许可证及致谢均归属于原项目作者及贡献者，下方为原项目文档。
-> ---
-> （下方接原`README.md`的全部内容）
 
 ## 致谢
 感谢所有为本项目提供测试和建议的朋友。
